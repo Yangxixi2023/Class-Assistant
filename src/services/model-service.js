@@ -1,0 +1,262 @@
+import OpenAI from 'openai';
+import { marked } from 'marked';
+
+const CATEGORY_NAMES = {
+  1: '课件内容',
+  2: '选择题',
+  3: '填空题',
+  4: '主观题',
+  5: '非课程内容'
+};
+
+const SYSTEM_PROMPT = [
+  '你是课堂解析助手。收到课堂图片后分类并输出结构化 JSON。',
+  '分类：1 课件内容，2 选择题，3 填空题，4 主观题，5 非课程内容。',
+  '只返回 JSON 对象，禁止 Markdown 代码块。',
+  '',
+  '顶层字段：{"categoryId":1,"categoryName":"课件内容","confidence":0.9,"reason":"","title":"","renderedMarkdown":"","payload":{}}',
+  '',
+  '规则：',
+  '- 不要使用 emoji 或网络用语',
+  '- 语言正式、简洁、学术化',
+  '- 课件内容：提炼要点，给出理解辅助而非复述原文',
+  '- renderedMarkdown 使用简洁的 Markdown，用二级标题分节',
+  '',
+  'payload 格式：',
+  'A. 课件(1)：{ summary(一句话总结), keyPoints(要点数组), tips(学习建议数组) }',
+  'B. 选择题(2)：{ questionStem, options([{key,text,isAnswer}]), answers([]), explanation, knowledgePoints }',
+  'C. 填空题(3)：{ questionStem, blanks([{index,answer}]), explanation, knowledgePoints }',
+  'D. 主观题(4)：{ questionStem, sampleAnswer, keyPoints([]), explanation, knowledgePoints }',
+  'E. 非课程(5)：所有字段置空'
+].join('\n');
+
+const DEEP_THINK_PROMPT = [
+  '你是学科专家。对以下课堂内容做深度分析。',
+  '要求：正式学术语言，无 emoji，结构清晰。',
+  '输出 Markdown，包含：',
+  '## 核心概念剖析',
+  '## 推导与原理',
+  '## 关联知识',
+  '## 典型考题',
+  '## 常见误区'
+].join('\n');
+
+const CHAT_SYSTEM_PROMPT = [
+  '你是课堂助教。用简洁准确的语言回答学生问题。',
+  '不使用 emoji 和网络用语。必要时用公式或代码辅助说明。',
+  '回答使用 Markdown 格式。'
+].join('\n');
+
+marked.setOptions({ breaks: true, gfm: true });
+
+class RetryableAnalysisError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'RetryableAnalysisError';
+    this.retryable = true;
+  }
+}
+
+function extractJson(text) {
+  const raw = typeof text === 'string' ? text.trim() : '';
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : raw;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) {
+    throw new RetryableAnalysisError('模型返回中没有找到合法 JSON。');
+  }
+  const jsonStr = candidate.slice(start, end + 1);
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e1) {
+    // Try fixing common issues: unescaped newlines in string values
+    try {
+      const fixed = jsonStr.replace(/(?<=:\s*")([\s\S]*?)(?="(?:\s*[,}\]]))/g, (match) => {
+        return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+      });
+      return JSON.parse(fixed);
+    } catch (e2) {
+      // Last resort: try eval-style parse with Function
+      try {
+        return (new Function('return ' + jsonStr))();
+      } catch (e3) {
+        console.error('[extractJson] Failed to parse. First 500 chars:', jsonStr.slice(0, 500));
+        throw new RetryableAnalysisError('模型返回的 JSON 无法解析。');
+      }
+    }
+  }
+}
+
+function asString(v) { return typeof v === 'string' ? v.trim() : ''; }
+function asNumber(v, f = 0) { const n = Number(v); return Number.isFinite(n) ? n : f; }
+function asStringArray(v) { return Array.isArray(v) ? v.map(i => asString(i)).filter(Boolean) : []; }
+
+function normalizeOptions(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, i) => {
+    if (typeof item === 'string') return { key: String.fromCharCode(65+i), text: item.trim(), isAnswer: false };
+    if (!item || typeof item !== 'object') return null;
+    return { key: asString(item.key) || String.fromCharCode(65+i), text: asString(item.text), isAnswer: Boolean(item.isAnswer) };
+  }).filter(item => item && item.text);
+}
+
+function normalizeBlanks(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, i) => {
+    if (typeof item === 'string') return { index: i+1, prompt: '', answer: item.trim() };
+    if (!item || typeof item !== 'object') return null;
+    return { index: asNumber(item.index, i+1), prompt: asString(item.prompt), answer: asString(item.answer) };
+  }).filter(item => item && item.answer);
+}
+
+function normalizePayload(categoryId, rawPayload) {
+  const p = rawPayload && typeof rawPayload === 'object' ? rawPayload : {};
+  const answers = asStringArray(p.answers);
+  const knowledgePoints = asStringArray(p.knowledgePoints);
+  const options = normalizeOptions(p.options).map(o => ({
+    ...o, isAnswer: o.isAnswer || answers.includes(o.key) || answers.includes(o.text)
+  }));
+
+  return {
+    summary: asString(p.summary),
+    keyPoints: asStringArray(p.keyPoints || p.coreConcepts),
+    tips: asStringArray(p.tips || p.examTips),
+    questionStem: asString(p.questionStem),
+    options,
+    blanks: normalizeBlanks(p.blanks),
+    answers,
+    knowledgePoints,
+    explanation: asString(p.explanation),
+    sampleAnswer: asString(p.sampleAnswer),
+    keyPointsAnswer: asStringArray(p.keyPoints),
+    difficulty: asNumber(p.difficulty, 3),
+    rawCategory: categoryId
+  };
+}
+
+function sanitizeMarkdown(markdown) {
+  return markdown.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/on\w+\s*=/gi, '');
+}
+
+function wrapModelError(error) {
+  const message = error?.message || String(error);
+  const retryable = error?.retryable ||
+    /service_unavailable|timeout|timed out|temporar|overloaded|429|500|502|503|504|reset/i.test(message);
+  return retryable ? new RetryableAnalysisError(`模型暂时不可用：${message}`) : new Error(message);
+}
+
+export class ModelService {
+  constructor(config) {
+    this.config = config;
+    this.client = config.openaiApiKey
+      ? new OpenAI({ apiKey: config.openaiApiKey, baseURL: config.openaiBaseUrl || undefined })
+      : null;
+    this.clientFast = config.openaiApiKeyFast && config.openaiApiKeyFast !== config.openaiApiKey
+      ? new OpenAI({ apiKey: config.openaiApiKeyFast, baseURL: config.openaiBaseUrl || undefined })
+      : this.client;
+    this.overrideFast = '';
+    this.overrideDeep = '';
+  }
+
+  setModels({ fast, deep }) {
+    if (fast) this.overrideFast = fast;
+    if (deep) this.overrideDeep = deep;
+  }
+
+  getModel(mode = 'fast') {
+    if (mode === 'deep') return this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel;
+    return this.overrideFast || this.config.openaiModelFast || this.config.openaiModel;
+  }
+
+  getClient(mode = 'fast') {
+    if (mode === 'deep') return this.client;
+    return this.clientFast || this.client;
+  }
+
+  getCurrentModels() {
+    return {
+      fast: this.overrideFast || this.config.openaiModelFast || this.config.openaiModel,
+      deep: this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel
+    };
+  }
+
+  async analyzeImage({ imageUrl, mode = 'fast' }) {
+    const client = this.getClient(mode);
+    if (!client) throw new Error('未配置 API Key');
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) throw new Error('无效图片 URL');
+
+    let completion;
+    try {
+      completion = await client.chat.completions.create({
+        model: this.getModel(mode),
+        temperature: 0.1,
+        max_tokens: 4096,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT + '\n\n严格只返回 JSON 对象，不要任何其他文字。' },
+          { role: 'user', content: [
+            { type: 'image_url', image_url: { url: imageUrl } },
+            { type: 'text', text: '解析这张课堂图片，返回 JSON。' }
+          ]}
+        ]
+      });
+    } catch (error) { throw wrapModelError(error); }
+
+    const text = completion.choices?.[0]?.message?.content;
+    if (!text) throw new RetryableAnalysisError('模型没有返回内容');
+
+    const parsed = extractJson(text);
+    const categoryId = asNumber(parsed.categoryId, 0);
+    const isIgnored = categoryId === 5;
+    const payload = normalizePayload(categoryId, parsed.payload);
+    const renderedMarkdown = isIgnored ? '' : asString(parsed.renderedMarkdown) || '';
+
+    return {
+      categoryId,
+      categoryName: CATEGORY_NAMES[categoryId] || '未识别',
+      confidence: asNumber(parsed.confidence, 0),
+      reason: isIgnored ? '' : asString(parsed.reason),
+      title: isIgnored ? '' : asString(parsed.title) || '分析结果',
+      payload,
+      renderedMarkdown,
+      renderedHtml: marked.parse(sanitizeMarkdown(renderedMarkdown))
+    };
+  }
+
+  async deepThink({ imageUrl, contextMarkdown }) {
+    if (!this.client) throw new Error('未配置 API Key');
+
+    const userContent = [];
+    if (contextMarkdown) userContent.push({ type: 'text', text: `基础解析：\n${contextMarkdown}\n\n请深入分析。` });
+    if (imageUrl && /^https?:\/\//i.test(imageUrl)) userContent.push({ type: 'image_url', image_url: { url: imageUrl } });
+    if (!userContent.length) userContent.push({ type: 'text', text: '请深入分析课堂内容。' });
+
+    const completion = await this.client.chat.completions.create({
+      model: this.getModel('deep'),
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: DEEP_THINK_PROMPT },
+        { role: 'user', content: userContent }
+      ]
+    });
+
+    return completion.choices?.[0]?.message?.content || '无法生成分析。';
+  }
+
+  async chat({ messages: chatHistory, imageUrl, contextMarkdown, background }) {
+    const client = this.getClient('fast');
+    if (!client) throw new Error('未配置 API Key');
+
+    let sys = CHAT_SYSTEM_PROMPT;
+    if (contextMarkdown) sys += `\n\n课件摘要：\n${contextMarkdown}`;
+    if (background) sys += `\n\n补充信息：\n${background}`;
+
+    const completion = await client.chat.completions.create({
+      model: this.getModel('fast'),
+      temperature: 0.3,
+      messages: [{ role: 'system', content: sys }, ...chatHistory]
+    });
+
+    return completion.choices?.[0]?.message?.content || '无法回答。';
+  }
+}

@@ -1,12 +1,22 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+
+const envPath = path.join(rootDir, '.env');
+const defaultEnvPath = path.join(rootDir, '.env.default');
+
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+} else if (fs.existsSync(defaultEnvPath)) {
+  dotenv.config({ path: defaultEnvPath });
+} else {
+  dotenv.config();
+}
 
 function resolveFromRoot(targetPath) {
   return path.resolve(rootDir, targetPath);

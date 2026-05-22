@@ -191,11 +191,21 @@
   }
 
   // ── Analysis panel ──
+  var lastRenderedAnalysis = { id: null, status: null, dt: null };
+
   function renderAnalysis(capture) {
     if (!capture || capture.status === 'captured') {
+      lastRenderedAnalysis = { id: null, status: null, dt: null };
       els.analysisBody.innerHTML = '<div class="panel-welcome"><p>点击「解析此页」分析当前课件</p></div>';
       return;
     }
+
+    var dtStatus = capture.deepThinkStatus || '';
+    if (capture.status === 'done' && lastRenderedAnalysis.id === capture.id && lastRenderedAnalysis.status === 'done' && lastRenderedAnalysis.dt === dtStatus) {
+      return;
+    }
+
+    lastRenderedAnalysis = { id: capture.id, status: capture.status, dt: dtStatus };
 
     if (capture.status === 'analyzing') {
       var attempt = capture.attemptCount || 1;

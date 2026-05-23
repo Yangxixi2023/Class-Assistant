@@ -238,7 +238,7 @@
       'waiting-login': '请登录雨课堂',
       starting: '启动中',
       error: '连接异常',
-      disabled: '离线模式'
+      disabled: state.appMode === 'online' ? '实时模式' : '离线模式'
     };
 
     var statusText = map[status.browserState] || '准备就绪';
@@ -1322,6 +1322,7 @@
       slideStage.style.flex = '0 0 ' + newW + 'px';
       sidePanel.style.flex = '1';
       sidePanel.style.width = 'auto';
+      syncViewBounds();
     });
 
     document.addEventListener('mouseup', function() {
@@ -1329,6 +1330,7 @@
         dragging = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        syncViewBounds();
       }
     });
   }
@@ -2494,12 +2496,17 @@
 
       var customUrl = ($('#online-url') || {}).value || '';
       showToast('正在启动雨课堂...');
+      els.statusText.textContent = '启动中';
 
       if (isElectron) {
-        document.querySelector('.workspace').classList.add('online-electron');
+        state._ykViewVisible = true;
         window.electronAPI.startYuketang(customUrl).then(function(r) {
-          if (!r.ok) showToast('启动失败: ' + (r.error || ''));
+          if (!r.ok) { showToast('启动失败: ' + (r.error || '')); return; }
+          syncViewBounds();
+          var toolbar = $('#yk-toolbar');
+          if (toolbar) toolbar.classList.add('visible');
         });
+        initYuketangToolbar();
       } else {
         fetch('/api/start-monitor', {
           method: 'POST',
@@ -2513,6 +2520,73 @@
           .catch(function() {});
       }
     }
+  }
+
+  // ── Sync BrowserView bounds to slide-stage ──
+  function syncViewBounds() {
+    if (!isElectron || !state._ykViewVisible) return;
+    var stage = document.querySelector('.slide-stage');
+    if (!stage) return;
+    var rect = stage.getBoundingClientRect();
+    window.electronAPI.setViewBounds({
+      x: Math.round(rect.left),
+      y: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height)
+    });
+  }
+
+  // ── Yuketang toolbar (live/slides toggle, new tab, close) ──
+  function initYuketangToolbar() {
+    var liveBtn = $('#yk-btn-live');
+    var slidesBtn = $('#yk-btn-slides');
+    var newtabBtn = $('#yk-btn-newtab');
+    var closeBtn = $('#yk-btn-close');
+
+    if (liveBtn && !liveBtn._bound) {
+      liveBtn._bound = true;
+      liveBtn.addEventListener('click', function() {
+        state._ykViewVisible = true;
+        liveBtn.classList.add('active');
+        slidesBtn.classList.remove('active');
+        window.electronAPI.showYuketangView();
+        syncViewBounds();
+      });
+    }
+
+    if (slidesBtn && !slidesBtn._bound) {
+      slidesBtn._bound = true;
+      slidesBtn.addEventListener('click', function() {
+        state._ykViewVisible = false;
+        slidesBtn.classList.add('active');
+        liveBtn.classList.remove('active');
+        window.electronAPI.hideYuketangView();
+      });
+    }
+
+    if (newtabBtn && !newtabBtn._bound) {
+      newtabBtn._bound = true;
+      newtabBtn.addEventListener('click', function() {
+        window.electronAPI.getYuketangUrl().then(function(url) {
+          if (url) window.electronAPI.openExternal(url);
+          else window.electronAPI.openExternal('https://www.yuketang.cn/web/?index');
+        });
+      });
+    }
+
+    if (closeBtn && !closeBtn._bound) {
+      closeBtn._bound = true;
+      closeBtn.addEventListener('click', function() {
+        state._ykViewVisible = false;
+        window.electronAPI.stopYuketang();
+        var toolbar = $('#yk-toolbar');
+        if (toolbar) toolbar.classList.remove('visible');
+        showToast('已关闭雨课堂视图');
+      });
+    }
+
+    // Sync bounds on window resize
+    window.addEventListener('resize', function() { syncViewBounds(); });
   }
 
   function initOnlineControls() {
@@ -2577,9 +2651,11 @@
       stopBtn._bound = true;
       stopBtn.addEventListener('click', function() {
         if (isElectron) {
+          state._ykViewVisible = false;
           window.electronAPI.stopYuketang().then(function() {
             showToast('已停止监听');
-            document.querySelector('.workspace').classList.remove('online-electron');
+            var toolbar = $('#yk-toolbar');
+            if (toolbar) toolbar.classList.remove('visible');
           });
         } else {
           fetch('/api/stop-monitor', { method: 'POST' })

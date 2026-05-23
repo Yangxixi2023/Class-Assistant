@@ -44,7 +44,6 @@ function createWindow() {
     app.quit();
   });
   mainWindow.on('closed', () => { mainWindow = null; });
-  mainWindow.on('resize', () => updateViewBounds());
 }
 
 function createTray() {
@@ -105,12 +104,12 @@ function startServer() {
 
 // ── BrowserView for 雨课堂 ──
 
-function updateViewBounds() {
+let viewBoundsCache = { x: 0, y: 82, width: 750, height: 700 };
+
+function updateViewBounds(bounds) {
+  if (bounds) viewBoundsCache = bounds;
   if (!yuketangView || !mainWindow) return;
-  const [winW, winH] = mainWindow.getContentSize();
-  // Left half of the window for yuketang, leave topbar space (44px)
-  const topOffset = 44 + 38; // topbar + online-bar
-  yuketangView.setBounds({ x: 0, y: topOffset, width: Math.floor(winW * 0.55), height: winH - topOffset });
+  yuketangView.setBounds(viewBoundsCache);
 }
 
 function updateBrowserStatus(title, url) {
@@ -154,12 +153,12 @@ async function startYuketangView(customUrl) {
       nodeIntegration: false,
       contextIsolation: true,
       partition,
-      sandbox: true
+      sandbox: true,
+      zoomFactor: 1.0
     }
   });
 
   mainWindow.addBrowserView(yuketangView);
-  updateViewBounds();
 
   yuketangView.webContents.on('did-navigate', (_e, url) => {
     const title = yuketangView.webContents.getTitle();
@@ -368,11 +367,24 @@ ipcMain.handle('relogin-yuketang', async () => {
 });
 
 ipcMain.handle('set-view-bounds', (_, bounds) => {
+  if (!bounds || !bounds.width || !bounds.height) return;
+  updateViewBounds({ x: bounds.x || 0, y: bounds.y || 0, width: Math.round(bounds.width), height: Math.round(bounds.height) });
+});
+
+ipcMain.handle('show-yuketang-view', () => {
   if (!yuketangView || !mainWindow) return;
-  const [winW, winH] = mainWindow.getContentSize();
-  const topOffset = bounds.topOffset || 82;
-  const widthRatio = bounds.widthRatio || 0.55;
-  yuketangView.setBounds({ x: 0, y: topOffset, width: Math.floor(winW * widthRatio), height: winH - topOffset });
+  mainWindow.addBrowserView(yuketangView);
+  updateViewBounds();
+});
+
+ipcMain.handle('hide-yuketang-view', () => {
+  if (!yuketangView || !mainWindow) return;
+  mainWindow.removeBrowserView(yuketangView);
+});
+
+ipcMain.handle('get-yuketang-url', () => {
+  if (!yuketangView) return '';
+  return yuketangView.webContents.getURL();
 });
 
 ipcMain.handle('capture-yuketang-screenshot', async () => {

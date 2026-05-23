@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reloginYuketang: () => ipcRenderer.invoke('relogin-yuketang'),
   manualScan: () => ipcRenderer.invoke('manual-scan-yuketang'),
   setViewBounds: (bounds) => ipcRenderer.invoke('set-view-bounds', bounds),
+  showYuketangView: () => ipcRenderer.invoke('show-yuketang-view'),
+  hideYuketangView: () => ipcRenderer.invoke('hide-yuketang-view'),
+  getYuketangUrl: () => ipcRenderer.invoke('get-yuketang-url'),
   captureYuketangScreenshot: () => ipcRenderer.invoke('capture-yuketang-screenshot'),
   isElectron: true
 });

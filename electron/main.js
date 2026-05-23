@@ -146,7 +146,6 @@ async function startYuketangView(customUrl) {
   if (!fs.existsSync(browserDataDir)) fs.mkdirSync(browserDataDir, { recursive: true });
 
   const partition = 'persist:yuketang';
-  const ses = session.fromPartition(partition);
 
   yuketangView = new BrowserView({
     webPreferences: {
@@ -161,18 +160,25 @@ async function startYuketangView(customUrl) {
   mainWindow.addBrowserView(yuketangView);
 
   yuketangView.webContents.on('did-navigate', (_e, url) => {
+    if (!yuketangView || yuketangView.webContents.isDestroyed()) return;
     const title = yuketangView.webContents.getTitle();
     updateBrowserStatus(title, url);
   });
 
   yuketangView.webContents.on('did-navigate-in-page', (_e, url) => {
+    if (!yuketangView || yuketangView.webContents.isDestroyed()) return;
     const title = yuketangView.webContents.getTitle();
     updateBrowserStatus(title, url);
   });
 
   yuketangView.webContents.on('page-title-updated', (_e, title) => {
+    if (!yuketangView || yuketangView.webContents.isDestroyed()) return;
     const url = yuketangView.webContents.getURL();
     updateBrowserStatus(title, url);
+  });
+
+  yuketangView.webContents.on('destroyed', () => {
+    yuketangView = null;
   });
 
   await yuketangView.webContents.loadURL(defaultUrl);
@@ -185,9 +191,11 @@ async function startYuketangView(customUrl) {
 
 function stopYuketangView() {
   if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
-  if (yuketangView && mainWindow) {
-    mainWindow.removeBrowserView(yuketangView);
-    yuketangView.webContents.close();
+  if (yuketangView) {
+    try {
+      if (mainWindow) mainWindow.removeBrowserView(yuketangView);
+      if (!yuketangView.webContents.isDestroyed()) yuketangView.webContents.close();
+    } catch (_) {}
     yuketangView = null;
   }
   captureReady = false;
@@ -329,6 +337,14 @@ ipcMain.handle('open-external', (_, url) => shell.openExternal(url));
 
 ipcMain.handle('start-yuketang', async (_, customUrl) => {
   try {
+    if (yuketangView) {
+      // View already exists, just make sure it's attached
+      if (mainWindow && !mainWindow.getBrowserViews().includes(yuketangView)) {
+        mainWindow.addBrowserView(yuketangView);
+      }
+      if (customUrl) await yuketangView.webContents.loadURL(customUrl);
+      return { ok: true };
+    }
     await startYuketangView(customUrl || '');
     return { ok: true };
   } catch (e) {
@@ -353,24 +369,21 @@ ipcMain.handle('navigate-yuketang', async (_, url) => {
 
 ipcMain.handle('relogin-yuketang', async () => {
   try {
-    if (!yuketangView) {
-      await startYuketangView('https://www.yuketang.cn/web/?index');
-      const ses = yuketangView.webContents.session;
-      await ses.clearStorageData();
-      await ses.clearCache();
-      captureReady = false;
-      inClassroom = false;
-      postToServer('/api/browser-status', { browserState: 'waiting-login' });
-      await yuketangView.webContents.loadURL('https://www.yuketang.cn/web/?index');
-    } else {
-      const ses = yuketangView.webContents.session;
-      await ses.clearStorageData();
-      await ses.clearCache();
-      captureReady = false;
-      inClassroom = false;
-      postToServer('/api/browser-status', { browserState: 'waiting-login' });
-      await yuketangView.webContents.loadURL('https://www.yuketang.cn/web/?index');
-    }
+    // 完全销毁旧视图再重建，避免 session 残留问题
+    if (yuketangView) stopYuketangView();
+
+    // 清除持久化 session 数据
+    const ses = session.fromPartition('persist:yuketang');
+    await ses.clearStorageData();
+    await ses.clearCache();
+    await ses.clearAuthCache();
+
+    captureReady = false;
+    inClassroom = false;
+    postToServer('/api/browser-status', { browserState: 'waiting-login' });
+
+    // 重新创建 BrowserView
+    await startYuketangView('https://www.yuketang.cn/web/?index');
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };

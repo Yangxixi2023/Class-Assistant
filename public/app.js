@@ -2572,9 +2572,10 @@
       liveBtn.addEventListener('click', function() {
         state._ykViewVisible = true;
         liveBtn.classList.add('active');
-        slidesBtn.classList.remove('active');
-        window.electronAPI.showYuketangView();
-        syncViewBounds();
+        if (slidesBtn) slidesBtn.classList.remove('active');
+        window.electronAPI.startYuketang('').then(function() {
+          syncViewBounds();
+        });
       });
     }
 
@@ -2608,6 +2609,8 @@
       closeBtn._bound = true;
       closeBtn.addEventListener('click', function() {
         state._ykViewVisible = false;
+        if (slidesBtn) slidesBtn.classList.add('active');
+        if (liveBtn) liveBtn.classList.remove('active');
         window.electronAPI.stopYuketang();
         showToast('已关闭雨课堂视图');
       });
@@ -2661,10 +2664,12 @@
           state._ykViewVisible = true;
           window.electronAPI.reloginYuketang().then(function(r) {
             if (r.ok) {
-              showToast('已清除登录，请重新登录雨课堂');
-              initYuketangToolbar();
-              syncViewBounds();
-              window.electronAPI.showYuketangView();
+              showToast('已清除登录，请在左侧重新登录雨课堂');
+              var liveBtn = $('#yk-btn-live');
+              var slidesBtn = $('#yk-btn-slides');
+              if (liveBtn) liveBtn.classList.add('active');
+              if (slidesBtn) slidesBtn.classList.remove('active');
+              setTimeout(function() { syncViewBounds(); }, 300);
             } else {
               showToast('重新登录失败: ' + (r.error || ''));
             }

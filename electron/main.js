@@ -1,18 +1,24 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, globalShortcut, nativeImage, clipboard, shell } = require('electron');
+const { app, BrowserWindow, BrowserView, Tray, Menu, ipcMain, dialog, globalShortcut, nativeImage, clipboard, shell, session } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 
 let mainWindow = null;
+let yuketangView = null;
 let tray = null;
 let serverProcess = null;
+let scanTimer = null;
+let captureReady = false;
+let inClassroom = false;
 const PORT = 3000;
 
 const isPacked = app.isPackaged;
 const appDir = path.resolve(__dirname, '..');
 const iconPath = path.join(appDir, 'public', 'assets', 'app-icon.png');
 const icoPath = path.join(appDir, 'public', 'assets', 'app-icon.ico');
+const browserDataDir = path.join(appDir, 'data', 'browser');
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -38,6 +44,7 @@ function createWindow() {
     app.quit();
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('resize', () => updateViewBounds());
 }
 
 function createTray() {
@@ -96,6 +103,189 @@ function startServer() {
   });
 }
 
+// ── BrowserView for 雨课堂 ──
+
+function updateViewBounds() {
+  if (!yuketangView || !mainWindow) return;
+  const [winW, winH] = mainWindow.getContentSize();
+  // Left half of the window for yuketang, leave topbar space (44px)
+  const topOffset = 44 + 38; // topbar + online-bar
+  yuketangView.setBounds({ x: 0, y: topOffset, width: Math.floor(winW * 0.55), height: winH - topOffset });
+}
+
+function updateBrowserStatus(title, url) {
+  const waitingLogin = title.includes('登录');
+  const inClass = isClassroomPage(url, title);
+  captureReady = !waitingLogin;
+  inClassroom = inClass;
+
+  const browserState = captureReady ? (inClass ? 'in-class' : 'running') : 'waiting-login';
+  postToServer('/api/browser-status', { browserState, currentPageTitle: title, currentPageUrl: url, inClassroom: inClass });
+  if (mainWindow) mainWindow.webContents.send('browser-status', { browserState, title, url });
+}
+
+function isClassroomPage(url, title) {
+  if (!url) return false;
+  const classPatterns = [/\/lesson\//, /\/classroom\//, /\/presentation\//, /\/pro\/lms\/.*\/studycontent/, /\/v2\/web\/index/, /problemset/, /quiz/, /exercise/];
+  const titlePatterns = [/课堂/, /课件/, /直播/, /互动/, /答题/, /签到/];
+  return classPatterns.some(p => p.test(url)) || titlePatterns.some(p => p.test(title || ''));
+}
+
+function isLikelySlideImage(url) {
+  if (!url) return false;
+  const ignorePatterns = [/avatar/, /icon/, /logo/, /badge/, /emoji/, /banner/, /thumbnail.*user/, /profile/, /\.svg$/i, /favicon/];
+  if (ignorePatterns.some(p => p.test(url))) return false;
+  return true;
+}
+
+async function startYuketangView(customUrl) {
+  if (yuketangView) return;
+
+  const defaultUrl = customUrl || 'https://www.yuketang.cn/web/?index';
+
+  // Ensure browser data dir
+  if (!fs.existsSync(browserDataDir)) fs.mkdirSync(browserDataDir, { recursive: true });
+
+  const partition = 'persist:yuketang';
+  const ses = session.fromPartition(partition);
+
+  yuketangView = new BrowserView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      partition,
+      sandbox: true
+    }
+  });
+
+  mainWindow.addBrowserView(yuketangView);
+  updateViewBounds();
+
+  yuketangView.webContents.on('did-navigate', (_e, url) => {
+    const title = yuketangView.webContents.getTitle();
+    updateBrowserStatus(title, url);
+  });
+
+  yuketangView.webContents.on('did-navigate-in-page', (_e, url) => {
+    const title = yuketangView.webContents.getTitle();
+    updateBrowserStatus(title, url);
+  });
+
+  yuketangView.webContents.on('page-title-updated', (_e, title) => {
+    const url = yuketangView.webContents.getURL();
+    updateBrowserStatus(title, url);
+  });
+
+  await yuketangView.webContents.loadURL(defaultUrl);
+
+  // Start scanning for images
+  scanTimer = setInterval(() => scanVisibleImages(), 2500);
+
+  postToServer('/api/browser-status', { browserState: 'waiting-login', currentPageTitle: '', currentPageUrl: defaultUrl });
+}
+
+function stopYuketangView() {
+  if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+  if (yuketangView && mainWindow) {
+    mainWindow.removeBrowserView(yuketangView);
+    yuketangView.webContents.close();
+    yuketangView = null;
+  }
+  captureReady = false;
+  inClassroom = false;
+  postToServer('/api/browser-status', { browserState: 'disabled' });
+}
+
+async function scanVisibleImages() {
+  if (!yuketangView || !captureReady) return;
+
+  try {
+    const visibleImages = await yuketangView.webContents.executeJavaScript(`
+      (function() {
+        function isVisible(el) {
+          var rect = el.getBoundingClientRect();
+          var style = window.getComputedStyle(el);
+          return rect.width > 40 && rect.height > 40 && rect.bottom > 0 && rect.right > 0 &&
+            rect.top < window.innerHeight && rect.left < window.innerWidth &&
+            style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity || '1') > 0;
+        }
+        return Array.from(document.images)
+          .map(function(img) { return { url: img.currentSrc || img.src, area: img.clientWidth * img.clientHeight }; })
+          .filter(function(img) { return img.url && img.url.startsWith('http') && img.area > 10000; })
+          .filter(function(img) {
+            var el = Array.from(document.images).find(function(i) { return (i.currentSrc || i.src) === img.url; });
+            return el ? isVisible(el) : false;
+          })
+          .sort(function(a, b) { return b.area - a.area; })
+          .slice(0, 8);
+      })()
+    `);
+
+    for (const img of visibleImages) {
+      if (!isLikelySlideImage(img.url)) continue;
+      fetchAndSubmitImage(img.url);
+    }
+  } catch (e) {
+    // Page might be navigating
+  }
+}
+
+function fetchAndSubmitImage(imageUrl, forceAnalyze) {
+  const mod = imageUrl.startsWith('https') ? https : http;
+  const req = mod.get(imageUrl, { timeout: 15000 }, (res) => {
+    if (res.statusCode !== 200) return;
+    const contentType = res.headers['content-type'] || 'image/png';
+    if (!contentType.startsWith('image/')) return;
+
+    const chunks = [];
+    res.on('data', (chunk) => chunks.push(chunk));
+    res.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      if (buffer.length < 5000) return;
+      submitCaptureToServer(imageUrl, buffer, contentType, forceAnalyze);
+    });
+  });
+  req.on('error', () => {});
+  req.end();
+}
+
+function submitCaptureToServer(url, buffer, contentType, forceAnalyze) {
+  const body = JSON.stringify({
+    url,
+    buffer: buffer.toString('base64'),
+    contentType,
+    inClass: inClassroom,
+    forceAnalyze: forceAnalyze || false
+  });
+
+  const req = http.request({
+    hostname: '127.0.0.1',
+    port: PORT,
+    path: '/api/submit-capture',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+  });
+  req.on('error', () => {});
+  req.write(body);
+  req.end();
+}
+
+function postToServer(path, data) {
+  const body = JSON.stringify(data);
+  const req = http.request({
+    hostname: '127.0.0.1',
+    port: PORT,
+    path,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+  });
+  req.on('error', () => {});
+  req.write(body);
+  req.end();
+}
+
+// ── App lifecycle ──
+
 app.whenReady().then(async () => {
   await startServer();
   createWindow();
@@ -106,9 +296,15 @@ app.whenReady().then(async () => {
 });
 
 app.on('activate', () => { if (!mainWindow) createWindow(); else mainWindow.show(); });
-app.on('before-quit', () => { app.isQuitting = true; if (serverProcess && !serverProcess.killed) serverProcess.kill(); });
+app.on('before-quit', () => {
+  app.isQuitting = true;
+  stopYuketangView();
+  if (serverProcess && !serverProcess.killed) serverProcess.kill();
+});
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { app.quit(); });
+
+// ── IPC handlers ──
 
 ipcMain.handle('select-file', async (_, opts) => {
   const r = await dialog.showOpenDialog(mainWindow, {
@@ -131,3 +327,79 @@ ipcMain.handle('get-clipboard-image', () => {
 });
 
 ipcMain.handle('open-external', (_, url) => shell.openExternal(url));
+
+ipcMain.handle('start-yuketang', async (_, customUrl) => {
+  try {
+    await startYuketangView(customUrl || '');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('stop-yuketang', () => {
+  stopYuketangView();
+  return { ok: true };
+});
+
+ipcMain.handle('navigate-yuketang', async (_, url) => {
+  if (!yuketangView) return { ok: false, error: '浏览器未启动' };
+  try {
+    await yuketangView.webContents.loadURL(url);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('relogin-yuketang', async () => {
+  if (!yuketangView) return { ok: false, error: '浏览器未启动' };
+  try {
+    const ses = yuketangView.webContents.session;
+    await ses.clearStorageData({ storages: ['cookies'] });
+    await yuketangView.webContents.loadURL('https://www.yuketang.cn/web/?index');
+    captureReady = false;
+    inClassroom = false;
+    postToServer('/api/browser-status', { browserState: 'waiting-login' });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('set-view-bounds', (_, bounds) => {
+  if (!yuketangView || !mainWindow) return;
+  const [winW, winH] = mainWindow.getContentSize();
+  const topOffset = bounds.topOffset || 82;
+  const widthRatio = bounds.widthRatio || 0.55;
+  yuketangView.setBounds({ x: 0, y: topOffset, width: Math.floor(winW * widthRatio), height: winH - topOffset });
+});
+
+ipcMain.handle('capture-yuketang-screenshot', async () => {
+  if (!yuketangView) return null;
+  try {
+    const img = await yuketangView.webContents.capturePage();
+    return img.toDataURL();
+  } catch { return null; }
+});
+
+ipcMain.handle('manual-scan-yuketang', async () => {
+  if (!yuketangView) return { ok: false, error: '浏览器未启动' };
+  try {
+    const visibleImages = await yuketangView.webContents.executeJavaScript(`
+      (function() {
+        return Array.from(document.images)
+          .map(function(img) { return { url: img.currentSrc || img.src, area: img.clientWidth * img.clientHeight }; })
+          .filter(function(img) { return img.url && img.url.startsWith('http') && img.area > 10000; })
+          .sort(function(a, b) { return b.area - a.area; })
+          .slice(0, 3);
+      })()
+    `);
+    for (const img of visibleImages) {
+      if (isLikelySlideImage(img.url)) fetchAndSubmitImage(img.url, true);
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});

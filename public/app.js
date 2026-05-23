@@ -1599,11 +1599,15 @@
           offlineAnalyzePdfPage(state.pdfCurrentPage);
         }
       } else {
-        fetch('/api/analyze-current', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: state.analyzeMode })
-        });
+        if (isElectron && state.appMode === 'online') {
+          window.electronAPI.manualScan();
+        } else {
+          fetch('/api/analyze-current', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: state.analyzeMode })
+          });
+        }
       }
       return;
     }
@@ -2489,17 +2493,25 @@
       initOnlineControls();
 
       var customUrl = ($('#online-url') || {}).value || '';
-      showToast('正在启动雨课堂监听...');
-      fetch('/api/start-monitor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: customUrl })
-      })
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-          if (!d.ok) showToast('监听启动失败: ' + (d.error || ''));
+      showToast('正在启动雨课堂...');
+
+      if (isElectron) {
+        document.querySelector('.workspace').classList.add('online-electron');
+        window.electronAPI.startYuketang(customUrl).then(function(r) {
+          if (!r.ok) showToast('启动失败: ' + (r.error || ''));
+        });
+      } else {
+        fetch('/api/start-monitor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: customUrl })
         })
-        .catch(function() {});
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (!d.ok) showToast('监听启动失败: ' + (d.error || ''));
+          })
+          .catch(function() {});
+      }
     }
   }
 
@@ -2515,17 +2527,24 @@
         var url = (urlInput.value || '').trim();
         if (!url) { showToast('请输入课堂链接'); return; }
         showToast('正在跳转...');
-        fetch('/api/navigate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url })
-        })
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (d.ok) showToast('已跳转');
-            else showToast('跳转失败: ' + (d.error || ''));
+        if (isElectron) {
+          window.electronAPI.navigateYuketang(url).then(function(r) {
+            if (r.ok) showToast('已跳转');
+            else showToast('跳转失败: ' + (r.error || ''));
+          });
+        } else {
+          fetch('/api/navigate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
           })
-          .catch(function() { showToast('请求失败'); });
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              if (d.ok) showToast('已跳转');
+              else showToast('跳转失败: ' + (d.error || ''));
+            })
+            .catch(function() { showToast('请求失败'); });
+        }
       });
 
       urlInput.addEventListener('keydown', function(e) {
@@ -2537,26 +2556,39 @@
       reloginBtn._bound = true;
       reloginBtn.addEventListener('click', function() {
         showToast('正在重新登录...');
-        fetch('/api/relogin', { method: 'POST' })
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (d.ok) showToast('已清除登录，请在浏览器窗口中重新登录');
-            else showToast('重新登录失败: ' + (d.error || ''));
-          })
-          .catch(function() { showToast('请求失败'); });
+        if (isElectron) {
+          window.electronAPI.reloginYuketang().then(function(r) {
+            if (r.ok) showToast('已清除登录，请重新登录雨课堂');
+            else showToast('重新登录失败: ' + (r.error || ''));
+          });
+        } else {
+          fetch('/api/relogin', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              if (d.ok) showToast('已清除登录，请在浏览器窗口中重新登录');
+              else showToast('重新登录失败: ' + (d.error || ''));
+            })
+            .catch(function() { showToast('请求失败'); });
+        }
       });
     }
 
     if (stopBtn && !stopBtn._bound) {
       stopBtn._bound = true;
       stopBtn.addEventListener('click', function() {
-        fetch('/api/stop-monitor', { method: 'POST' })
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (d.ok) showToast('已停止监听');
-            else showToast('停止失败');
-          })
-          .catch(function() {});
+        if (isElectron) {
+          window.electronAPI.stopYuketang().then(function() {
+            showToast('已停止监听');
+            document.querySelector('.workspace').classList.remove('online-electron');
+          });
+        } else {
+          fetch('/api/stop-monitor', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              if (d.ok) showToast('已停止监听');
+            })
+            .catch(function() {});
+        }
       });
     }
   }

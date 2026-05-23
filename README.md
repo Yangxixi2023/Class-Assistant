@@ -2,7 +2,7 @@
 
 > 基于 AI 的课堂学习助手 — 实时课件捕获解析 + 离线文档分析 + 翻译词典 + 智能对话
 
-![Node.js](https://img.shields.io/badge/Node.js-18+-green) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Node.js](https://img.shields.io/badge/Node.js-18+-green) ![Electron](https://img.shields.io/badge/Electron-33-blue) ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
@@ -10,26 +10,31 @@
 
 > **已内置 API 配置，克隆后直接可用，无需任何额外设置。**
 
-### 方式一：桌面应用（推荐 Windows 用户）
-
-```
-1. 安装 Node.js 18+  →  https://nodejs.org/
-2. 下载本项目（Clone 或 Download ZIP）
-3. 双击「智慧课堂.exe」→ 点击「启动」
-4. 选择「实时模式」或「离线模式」
-```
-
-> 首次运行会自动安装依赖（需要网络），之后秒开。
-
-### 方式二：命令行启动
+### 方式一：桌面应用（推荐）
 
 ```bash
 git clone https://github.com/Yangxixi2023/Class-assistent.git
 cd Class-assistent
-npm install                         # 安装依赖
-npx playwright install chromium     # 安装浏览器（首次，仅实时模式需要）
-npm start                           # 启动
+npm install
+npm run build                       # 打包 Electron 应用
 ```
+
+打包完成后在 `dist/win-unpacked/智慧课堂.exe` 双击运行。
+
+或直接开发模式运行：
+```bash
+npm run electron                    # 启动 Electron 桌面应用
+```
+
+### 方式二：命令行（Web 面板模式）
+
+```bash
+npm install
+npx playwright install chromium     # 仅 CLI 在线模式需要
+npm start                           # 启动 Web 服务
+```
+
+浏览器访问 `http://127.0.0.1:3000` 使用。
 
 ---
 
@@ -37,15 +42,15 @@ npm start                           # 启动
 
 ### 实时模式（在线）
 
-连接雨课堂，自动捕获并解析课件。
+雨课堂网页**直接嵌入应用窗口内**，左侧浏览课件，右侧实时显示 AI 解析结果。
 
 | 步骤 | 说明 |
 |:---|:---|
-| 启动后选择「实时模式」 | 自动打开 Chromium 浏览器 |
-| 在浏览器中登录雨课堂 | 登录状态会自动保持 |
-| 正常上课 | 程序自动捕获课件、识别题目、生成解析 |
+| 启动后选择「实时模式」 | 窗口左侧加载雨课堂页面 |
+| 在左侧页面中登录雨课堂 | 登录状态自动保持 |
+| 正常上课 | 程序自动捕获课件图片、识别题目、生成解析 |
 
-**在线控制栏**：顶部显示课堂链接输入框，支持跳转到自定义课堂链接、重新登录、停止监听。
+**控制栏功能**：课堂链接输入 + 跳转、重新登录、停止监听。
 
 ### 离线模式
 
@@ -156,7 +161,9 @@ TRANSLATE_MODEL=deepseek-v4-flash
 npm run build       # 使用 electron-builder 打包
 ```
 
-打包产物在 `dist/win-unpacked/` 目录，其中 `智慧课堂.exe` 为主程序。
+打包产物在 `dist/win-unpacked/` 目录，`智慧课堂.exe` 为主程序。
+
+> 桌面应用内嵌浏览器，在线模式不需要安装 Playwright。CLI 模式（`npm start`）在线功能需要 Playwright。
 
 ---
 
@@ -197,10 +204,9 @@ npm run build       # 使用 electron-builder 打包
 ## 项目结构
 
 ```
-├── 智慧课堂.exe                # Windows GUI 启动器（双击即用）
 ├── electron/
-│   ├── main.js                # Electron 主进程
-│   ├── preload.js             # 预加载脚本
+│   ├── main.js                # Electron 主进程（BrowserView 管理 + 图片捕获）
+│   ├── preload.js             # 预加载脚本（IPC 桥接）
 │   └── launch.js              # 开发模式启动器
 ├── .env.default               # 内置默认配置
 ├── src/
@@ -210,7 +216,7 @@ npm run build       # 使用 electron-builder 打包
 │   └── services/
 │       ├── model-service.js       # AI 调用（多 key / 多模型 / 翻译）
 │       ├── capture-pipeline.js    # 图片去重 + 分析队列 + 自动重试
-│       └── monitor-service.js     # Playwright 浏览器监控
+│       └── monitor-service.js     # Playwright 监控（仅 CLI 模式）
 ├── public/
 │   ├── index.html             # 面板 UI（CSS + HTML）
 │   ├── app.js                 # 前端交互逻辑

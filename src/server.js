@@ -28,7 +28,7 @@ async function main() {
   const capturePipeline = new CapturePipeline(config, state, modelService);
   const monitorService = new MonitorService(config, state, capturePipeline);
 
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
   app.use(express.static(config.publicDir));
   app.use('/captures', express.static(config.captureDir));
 
@@ -364,8 +364,30 @@ async function main() {
     }
   });
 
-  // ── Start/stop browser monitor on demand ──
+  // ── Electron BrowserView: receive captured images ──
+  app.post('/api/submit-capture', async (req, res) => {
+    const { url, buffer: base64, contentType, inClass, forceAnalyze } = req.body;
+    if (!url || !base64) return res.status(400).json({ ok: false });
+    try {
+      const buffer = Buffer.from(base64, 'base64');
+      await capturePipeline.submit({ url, source: 'electron', buffer, contentType, inClass, forceAnalyze: forceAnalyze || false });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/browser-status', (req, res) => {
+    const { browserState, currentPageTitle, currentPageUrl, inClassroom } = req.body;
+    state.setStatus({ browserState, currentPageTitle, currentPageUrl, inClassroom });
+    res.json({ ok: true });
+  });
+
+  // ── Start/stop browser monitor (CLI fallback, non-Electron) ──
   app.post('/api/start-monitor', async (req, res) => {
+    if (process.env.ELECTRON === '1') {
+      return res.json({ ok: true, message: '请通过应用界面启动在线模式' });
+    }
     if (monitorService.isRunning()) {
       return res.json({ ok: true, message: '监听已在运行' });
     }
@@ -381,7 +403,9 @@ async function main() {
   });
 
   app.post('/api/stop-monitor', async (_req, res) => {
-    await monitorService.stop().catch(() => {});
+    if (process.env.ELECTRON !== '1') {
+      await monitorService.stop().catch(() => {});
+    }
     state.setStatus({ browserState: 'disabled' });
     res.json({ ok: true });
   });

@@ -278,6 +278,9 @@
       /* ═══ Workspace ═══ */
       .workspace { display: flex; flex: 1; overflow: hidden; background: var(--bg-cool); }
       .workspace.layout-swapped { flex-direction: row-reverse; }
+      .workspace.online-electron .slide-stage { background: transparent; }
+      .workspace.online-electron .slide-display { visibility: hidden; }
+      .workspace.online-electron .slide-nav { visibility: hidden; }
 
       .slide-stage {
         flex: 1.6; display: flex; flex-direction: column;

@@ -134,6 +134,35 @@ async function main() {
     }
   });
 
+  app.post('/api/chat-stream', async (req, res) => {
+    const { captureId, messages, background, model } = req.body;
+    const capture = captureId ? state.findCapture(captureId) : null;
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    try {
+      const stream = await modelService.chatStream({
+        messages: messages || [],
+        imageUrl: capture?.url,
+        contextMarkdown: capture?.renderedMarkdown,
+        background: background || '',
+        model: model || undefined
+      });
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) res.write(`data: ${JSON.stringify({ t: delta })}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
+  });
+
   app.post('/api/submit-answer', async (req, res) => {
     const { captureId, answerType, answers } = req.body;
     try {
@@ -172,6 +201,28 @@ async function main() {
       res.json({ ok: true, translation: result });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/translate-stream', async (req, res) => {
+    const { text, targetLang, sourceLang } = req.body;
+    if (!text) return res.status(400).json({ ok: false, error: '未提供文本' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    try {
+      const stream = await modelService.translateStream({ text, targetLang, sourceLang });
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) res.write(`data: ${JSON.stringify({ t: delta })}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
     }
   });
 

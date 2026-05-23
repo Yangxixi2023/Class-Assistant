@@ -939,8 +939,8 @@
       .translate-popup-btn:hover { background: var(--accent-soft); color: var(--accent); }
       .translate-result {
         position: fixed; z-index: 200;
-        min-width: 200px; max-width: 480px;
-        min-height: 80px; max-height: 400px;
+        min-width: 200px; max-width: 600px; width: 380px;
+        min-height: 80px; max-height: 80vh;
         background: var(--surface);
         border: 1px solid var(--glass-border);
         border-radius: 10px;
@@ -1284,6 +1284,9 @@
                 <div class="chat-bubble system">对当前课件有疑问？直接问我吧</div>
               </div>
               <div class="chat-composer">
+                <button class="attach-btn" id="btn-chat-model" title="切换对话模型" style="font-size:10px;font-weight:600;min-width:auto;padding:4px 6px">
+                  <span id="chat-model-label">快速</span>
+                </button>
                 <button class="attach-btn" id="btn-chat-attach" title="添加附件">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
                 </button>

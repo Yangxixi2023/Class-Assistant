@@ -299,13 +299,78 @@ export class ModelService {
     return completion.choices?.[0]?.message?.content || '无法回答。';
   }
 
+  chatStream({ messages: chatHistory, imageUrl, contextMarkdown, background, model }) {
+    const client = this.getClient('fast');
+    if (!client) throw new Error('未配置 API Key');
+
+    let sys = CHAT_SYSTEM_PROMPT;
+    if (contextMarkdown) sys += `\n\n课件摘要：\n${contextMarkdown}`;
+    if (background) sys += `\n\n补充信息：\n${background}`;
+
+    return client.chat.completions.create({
+      model: model || this.getModel('fast'),
+      temperature: 0.3,
+      stream: true,
+      messages: [{ role: 'system', content: sys }, ...chatHistory]
+    });
+  }
+
   async translate({ text, targetLang = '中文', sourceLang = '' }) {
     const client = this.getClient('translate');
     if (!client) throw new Error('未配置翻译 API Key');
 
     const langHint = sourceLang ? `源语言：${sourceLang}，` : '';
+    const systemPrompt = this._translateSystemPrompt(langHint, targetLang);
 
-    const systemPrompt = `你是一个专业的词典式翻译助手。${langHint}目标语言：${targetLang}。
+    const completion = await client.chat.completions.create({
+      model: this.getModel('translate'),
+      temperature: 0.1,
+      max_tokens: 2048,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text }
+      ]
+    });
+
+    const raw = (completion.choices?.[0]?.message?.content || '').trim();
+
+    // Try to parse structured JSON; fall back to plain-text wrapper
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return JSON.stringify(parsed);
+    } catch {
+      // Model didn't return valid JSON — wrap plain text so the caller still gets consistent format
+      return JSON.stringify({
+        type: 'sentence',
+        original: text,
+        translation: raw,
+        vocabulary: []
+      });
+    }
+  }
+
+  translateStream({ text, targetLang = '中文', sourceLang = '' }) {
+    const client = this.getClient('translate');
+    if (!client) throw new Error('未配置翻译 API Key');
+
+    const langHint = sourceLang ? `源语言：${sourceLang}，` : '';
+    const systemPrompt = this._translateSystemPrompt(langHint, targetLang);
+
+    return client.chat.completions.create({
+      model: this.getModel('translate'),
+      temperature: 0.1,
+      max_tokens: 2048,
+      stream: true,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text }
+      ]
+    });
+  }
+
+  _translateSystemPrompt(langHint, targetLang) {
+    return `你是一个专业的词典式翻译助手。${langHint}目标语言：${targetLang}。
 
 请先判断用户输入是单个词/短语还是完整句子，然后按对应格式返回 **纯 JSON**（不要 markdown 代码块包裹）。
 
@@ -338,33 +403,6 @@ export class ModelService {
 - vocabulary 挑选 2-5 个关键/难点词汇。
 - 遇到专业术语请使用目标语言中该领域的通用译法。
 - 只返回合法 JSON，不要附加任何解释文字。`;
-
-    const completion = await client.chat.completions.create({
-      model: this.getModel('translate'),
-      temperature: 0.1,
-      max_tokens: 2048,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: text }
-      ]
-    });
-
-    const raw = (completion.choices?.[0]?.message?.content || '').trim();
-
-    // Try to parse structured JSON; fall back to plain-text wrapper
-    try {
-      const cleaned = raw.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
-      const parsed = JSON.parse(cleaned);
-      return JSON.stringify(parsed);
-    } catch {
-      // Model didn't return valid JSON — wrap plain text so the caller still gets consistent format
-      return JSON.stringify({
-        type: 'sentence',
-        original: text,
-        translation: raw,
-        vocabulary: []
-      });
-    }
   }
 
   async listModels(apiKey, baseUrl) {

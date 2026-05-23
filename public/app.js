@@ -52,7 +52,8 @@
     pdfText: '',
     pdfFiles: [], // [{name, data(Uint8Array)}]
     pdfActiveIndex: -1,
-    _pdfObserver: null
+    _pdfObserver: null,
+    chatModel: '' // custom chat model override
   };
 
   // ── Utilities ──
@@ -612,6 +613,7 @@
     if (!text && !state.chatAttachments.length) return;
     if (state.chatLoading) return;
     input.value = '';
+    input.style.height = 'auto';
 
     var msg = { role: 'user', content: text || '(附件)', attachments: state.chatAttachments.slice() };
     state.chatHistory.push(msg);
@@ -620,34 +622,35 @@
     renderChat();
     state.chatLoading = true;
 
-    var thinkingDiv = document.createElement('div');
-    thinkingDiv.className = 'chat-bubble thinking';
-    thinkingDiv.textContent = '思考中...';
-    els.chatMessages.appendChild(thinkingDiv);
+    var replyDiv = document.createElement('div');
+    replyDiv.className = 'chat-bubble assistant streaming';
+    replyDiv.innerHTML = '<span class="chat-thinking-dot">思考中...</span>';
+    els.chatMessages.appendChild(replyDiv);
     els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
 
     var bg = $('#chat-background') ? ($('#chat-background').value || '').trim() : '';
-    fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        captureId: state.focusedId,
-        messages: state.chatHistory.map(function(m) { return { role: m.role, content: m.content }; }),
-        background: bg
-      })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      thinkingDiv.remove();
-      state.chatHistory.push({ role: 'assistant', content: d.ok ? d.reply : ('错误: ' + d.error) });
+    var accumulated = '';
+
+    fetchStream('/api/chat-stream', {
+      captureId: state.focusedId,
+      messages: state.chatHistory.map(function(m) { return { role: m.role, content: m.content }; }),
+      background: bg,
+      model: state.chatModel || ''
+    }, function(chunk) {
+      accumulated += chunk;
+      replyDiv.innerHTML = parseMd(accumulated);
+      replyDiv.classList.remove('streaming');
+      els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    }, function() {
+      replyDiv.innerHTML = parseMd(accumulated || '无法回答。');
+      replyDiv.classList.remove('streaming');
+      state.chatHistory.push({ role: 'assistant', content: accumulated || '无法回答。' });
       state.chatLoading = false;
-      renderChat();
-    })
-    .catch(function(e) {
-      thinkingDiv.remove();
-      state.chatHistory.push({ role: 'assistant', content: '请求失败: ' + e.message });
+    }, function(err) {
+      replyDiv.innerHTML = '<span class="chat-error">请求失败: ' + esc(err) + '</span>';
+      replyDiv.classList.remove('streaming');
+      state.chatHistory.push({ role: 'assistant', content: '请求失败: ' + err });
       state.chatLoading = false;
-      renderChat();
     });
   }
 
@@ -1088,6 +1091,18 @@
         e.stopPropagation();
         var selectedModel = item.dataset.selectModel;
         var mMode = item.dataset.modelMode || state.analyzeMode;
+
+        if (mMode === 'chat') {
+          state.chatModel = selectedModel;
+          var label = $('#chat-model-label');
+          if (label) label.textContent = selectedModel.length > 12 ? selectedModel.slice(0, 12) + '…' : selectedModel;
+          showToast('对话模型: ' + selectedModel);
+          var dd = document.querySelector('.model-dropdown');
+          if (dd) dd.remove();
+          resumeYuketangView();
+          return;
+        }
+
         var payload = {};
         if (mMode === 'translate') payload.translate = selectedModel;
         else if (mMode === 'deep') payload.deep = selectedModel;
@@ -1115,9 +1130,11 @@
     var existing = document.querySelector('.model-dropdown');
     if (existing) { existing.remove(); resumeYuketangView(); return; }
 
-    var modeLabel = dropdownMode === 'translate' ? '翻译' : (dropdownMode === 'deep' ? '深度' : '快速');
+    var modeLabel = dropdownMode === 'chat' ? '对话' : (dropdownMode === 'translate' ? '翻译' : (dropdownMode === 'deep' ? '深度' : '快速'));
     var currentModel = '';
-    if (state.models) {
+    if (dropdownMode === 'chat') {
+      currentModel = state.chatModel || (state.models ? state.models.fast : '') || '';
+    } else if (state.models) {
       if (dropdownMode === 'translate') currentModel = state.models.translate || '';
       else if (dropdownMode === 'deep') currentModel = state.models.deep || '';
       else currentModel = state.models.fast || '';
@@ -1606,7 +1623,9 @@
         }
       } else {
         if (isElectron && state.appMode === 'online') {
-          window.electronAPI.manualScan();
+          window.electronAPI.manualScan().then(function(r) {
+            if (!r || !r.ok) showToast('扫描失败：请先打开雨课堂视图');
+          });
         } else {
           fetch('/api/analyze-current', {
             method: 'POST',
@@ -1672,6 +1691,12 @@
     }
     if (t.closest('#btn-switch-translate-model')) {
       showModelDropdown(t.closest('#btn-switch-translate-model'), 'translate');
+      return;
+    }
+
+    // Chat model selector
+    if (t.closest('#btn-chat-model')) {
+      showModelDropdown(t.closest('#btn-chat-model'), 'chat');
       return;
     }
 
@@ -2219,7 +2244,7 @@
   function initTextSelection() {
     document.addEventListener('mouseup', function(e) {
       if (selectionSettings.mode === 'off') return;
-      if (e.target.closest('.translate-popup, .translate-result, .topbar, .chat-composer, .welcome-screen, .modal-overlay')) return;
+      if (e.target.closest('.translate-popup, .translate-result, .translate-drag-bar, .topbar, .chat-composer, .welcome-screen, .modal-overlay, .online-bar')) return;
 
       var sel = window.getSelection();
       var text = sel ? sel.toString().trim() : '';
@@ -2400,52 +2425,71 @@
 
   function doTranslate(text, rect) {
     var popup = createResultPopup(rect, '翻译中...');
+    var body = popup.querySelector('.translate-body');
+    if (!body) return;
 
-    fetch('/api/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text, targetLang: '中文' })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var body = popup.querySelector('.translate-body');
-      if (!body) return;
-      if (d.ok) {
-        body.innerHTML = renderTranslateResult(d.translation);
-      } else {
-        body.innerHTML = '<div class="translate-error">翻译失败: ' + esc(d.error) + '</div>';
-      }
-    })
-    .catch(function() {
-      var body = popup.querySelector('.translate-body');
-      if (body) body.innerHTML = '<div class="translate-error">请求失败</div>';
+    var accumulated = '';
+    fetchStream('/api/translate-stream', { text: text, targetLang: '中文' }, function(chunk) {
+      accumulated += chunk;
+      body.innerHTML = '<div class="translate-content streaming">' + esc(accumulated) + '</div>';
+    }, function() {
+      body.innerHTML = renderTranslateResult(accumulated);
+    }, function(err) {
+      body.innerHTML = '<div class="translate-error">翻译失败: ' + esc(err) + '</div>';
     });
   }
 
   function doExplain(text, rect) {
     var popup = createResultPopup(rect, '解释中...');
+    var body = popup.querySelector('.translate-body');
+    if (!body) return;
 
-    fetch('/api/chat', {
+    var accumulated = '';
+    fetchStream('/api/chat-stream', {
+      messages: [{ role: 'user', content: '简短解释以下内容（2-3句话）：\n\n' + text }]
+    }, function(chunk) {
+      accumulated += chunk;
+      body.innerHTML = '<div class="translate-content prose">' + parseMd(accumulated) + '</div>';
+    }, function() {
+      body.innerHTML = '<div class="translate-content prose">' + parseMd(accumulated) + '</div>';
+    }, function(err) {
+      body.innerHTML = '<div class="translate-error">解释失败: ' + esc(err) + '</div>';
+    });
+  }
+
+  function fetchStream(url, payload, onChunk, onDone, onError) {
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: '简短解释以下内容（2-3句话）：\n\n' + text }]
-      })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var body = popup.querySelector('.translate-body');
-      if (!body) return;
-      if (d.ok) {
-        body.innerHTML = '<div class="translate-content prose">' + parseMd(d.reply) + '</div>';
-      } else {
-        body.innerHTML = '<div class="translate-error">解释失败: ' + esc(d.error) + '</div>';
+      body: JSON.stringify(payload)
+    }).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+
+      function read() {
+        reader.read().then(function(result) {
+          if (result.done) { onDone(); return; }
+          buffer += decoder.decode(result.value, { stream: true });
+          var lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (!line.startsWith('data: ')) continue;
+            var data = line.slice(6);
+            if (data === '[DONE]') { onDone(); return; }
+            try {
+              var parsed = JSON.parse(data);
+              if (parsed.error) { onError(parsed.error); return; }
+              if (parsed.t) onChunk(parsed.t);
+            } catch(e) {}
+          }
+          read();
+        }).catch(function(e) { onError(e.message); });
       }
-    })
-    .catch(function() {
-      var body = popup.querySelector('.translate-body');
-      if (body) body.innerHTML = '<div class="translate-error">请求失败</div>';
-    });
+      read();
+    }).catch(function(e) { onError(e.message); });
   }
 
   // ── SSE + Boot ──

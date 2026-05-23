@@ -104,7 +104,7 @@ function startServer() {
 
 // ── BrowserView for 雨课堂 ──
 
-let viewBoundsCache = { x: 0, y: 82, width: 750, height: 700 };
+let viewBoundsCache = { x: 0, y: 0, width: 0, height: 0 };
 
 function updateViewBounds(bounds) {
   if (bounds) viewBoundsCache = bounds;

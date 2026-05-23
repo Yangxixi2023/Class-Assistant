@@ -1107,12 +1107,13 @@
         });
         var dd = document.querySelector('.model-dropdown');
         if (dd) dd.remove();
+        resumeYuketangView();
       });
     });
   }
   function showModelDropdown(anchorEl, dropdownMode) {
     var existing = document.querySelector('.model-dropdown');
-    if (existing) { existing.remove(); return; }
+    if (existing) { existing.remove(); resumeYuketangView(); return; }
 
     var modeLabel = dropdownMode === 'translate' ? '翻译' : (dropdownMode === 'deep' ? '深度' : '快速');
     var currentModel = '';
@@ -1159,12 +1160,14 @@
     dropdown.innerHTML = content;
     document.body.appendChild(dropdown);
     bindDropdownItems(dropdown);
+    pauseYuketangView();
 
     setTimeout(function() {
       document.addEventListener('click', function closeDropdown(e) {
         if (!dropdown.contains(e.target) && !anchorEl.contains(e.target)) {
           dropdown.remove();
           document.removeEventListener('click', closeDropdown);
+          resumeYuketangView();
         }
       });
     }, 10);
@@ -1411,6 +1414,7 @@
     var pop = $('#api-popover');
     if (pop && pop.classList.contains('show') && !t.closest('#api-popover') && !t.closest('#btn-api-info')) {
       pop.classList.remove('show');
+      resumeYuketangView();
     }
 
     // Upload zone click
@@ -1720,6 +1724,7 @@
 
     // Settings modal open
     if (t.closest('#btn-settings')) {
+      pauseYuketangView();
       els.settingsModal.style.display = 'flex';
       loadCfg();
       return;
@@ -1729,6 +1734,7 @@
     if (t.closest('#api-popover-edit-btn')) {
       var pop = $('#api-popover');
       if (pop) pop.classList.remove('show');
+      pauseYuketangView();
       els.settingsModal.style.display = 'flex';
       loadCfg();
       return;
@@ -1740,11 +1746,14 @@
       if (pop) {
         var isShowing = pop.classList.toggle('show');
         if (isShowing) {
+          pauseYuketangView();
           var btnRect = document.getElementById('btn-api-info').getBoundingClientRect();
           pop.style.top = (btnRect.bottom + 6) + 'px';
           pop.style.right = (window.innerWidth - btnRect.right) + 'px';
           state._configCache = null;
           loadApiKeyDisplay();
+        } else {
+          resumeYuketangView();
         }
       }
       return;
@@ -1752,6 +1761,7 @@
 
     // Help modal open
     if (t.closest('#btn-help')) {
+      pauseYuketangView();
       var helpModal = document.getElementById('help-modal');
       if (helpModal) helpModal.style.display = 'flex';
       return;
@@ -1760,18 +1770,21 @@
     // Close help
     if (t.id === 'btn-close-help') {
       document.getElementById('help-modal').style.display = 'none';
+      resumeYuketangView();
       return;
     }
 
     // Close settings
     if (t.id === 'btn-close-settings') {
       els.settingsModal.style.display = 'none';
+      resumeYuketangView();
       return;
     }
 
     // Close fullscreen modal
     if (t.id === 'btn-close-modal') {
       els.fullscreenModal.style.display = 'none';
+      resumeYuketangView();
       return;
     }
 
@@ -1904,6 +1917,7 @@
         if (d.ok) {
           showToast('配置已保存，重启后生效');
           els.settingsModal.style.display = 'none';
+          resumeYuketangView();
           state._configCache = null;
           loadApiKeyDisplay();
         } else {
@@ -2033,6 +2047,7 @@
           content += '<hr style="margin:20px 0;border-color:var(--border)"/><div class="prose">' + capFs.deepThinkHtml + '</div>';
         }
         els.modalBody.innerHTML = content;
+        pauseYuketangView();
         els.fullscreenModal.style.display = 'flex';
         return;
       }
@@ -2534,6 +2549,17 @@
       width: Math.round(rect.width),
       height: Math.round(rect.height)
     });
+  }
+
+  function pauseYuketangView() {
+    if (!isElectron || !state._ykViewVisible) return;
+    window.electronAPI.hideYuketangView();
+  }
+
+  function resumeYuketangView() {
+    if (!isElectron || !state._ykViewVisible) return;
+    window.electronAPI.showYuketangView();
+    syncViewBounds();
   }
 
   // ── Yuketang toolbar (live/slides toggle, new tab, close) ──

@@ -143,44 +143,7 @@
       .online-bar-btn.danger { color: var(--red); border-color: var(--red); }
       .online-bar-btn.danger:hover { background: var(--red); color: #fff; }
       .online-bar-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
-
-      /* Yuketang view floating toolbar — sits ABOVE BrowserView via position:fixed + high z-index */
-      .yk-view-toolbar {
-        display: none;
-        position: fixed;
-        top: 100px; left: 50%;
-        transform: translateX(-50%);
-        z-index: 99999;
-        background: rgba(30,30,30,0.92);
-        backdrop-filter: blur(10px);
-        border-radius: var(--r-full);
-        padding: 5px 8px;
-        gap: 4px;
-        align-items: center;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        transition: opacity 0.2s;
-        cursor: grab;
-        user-select: none;
-        -webkit-app-region: no-drag;
-      }
-      .yk-view-toolbar.dragging { cursor: grabbing; }
-      .yk-view-toolbar.visible { display: flex; }
-      .yk-view-btn {
-        padding: 5px 12px;
-        font-size: 11px;
-        font-weight: 600;
-        border: none;
-        border-radius: var(--r-full);
-        cursor: pointer;
-        color: rgba(255,255,255,0.8);
-        background: transparent;
-        transition: all 0.15s;
-        white-space: nowrap;
-        font-family: var(--sans);
-      }
-      .yk-view-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
-      .yk-view-btn.active { background: var(--accent); color: #fff; }
-      .yk-view-btn.danger:hover { background: var(--red); }
+      .online-bar-btn.yk-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
       /* Pill toggle (fast/deep) */
       .pill-toggle {
@@ -1260,7 +1223,12 @@
       </nav>
 
       <div class="online-bar" id="online-bar">
-        <span style="color:var(--text-3);font-weight:600">课堂链接</span>
+        <button class="online-bar-btn yk-toggle active" id="yk-btn-live" title="显示雨课堂实时页面">雨课堂</button>
+        <button class="online-bar-btn yk-toggle" id="yk-btn-slides" title="查看捕获的课件">课件</button>
+        <button class="online-bar-btn" id="yk-btn-newtab" title="新标签页打开雨课堂">↗ 新窗口</button>
+        <button class="online-bar-btn danger" id="yk-btn-close" title="关闭雨课堂嵌入视图">✕ 关闭</button>
+        <div class="online-bar-sep"></div>
+        <span style="color:var(--text-3);font-weight:600;font-size:11px">链接</span>
         <input type="text" class="online-bar-url" id="online-url" placeholder="https://www.yuketang.cn/web/?index" />
         <button class="online-bar-btn primary" id="btn-online-go" title="导航到此链接">跳转</button>
         <div class="online-bar-sep"></div>
@@ -1568,13 +1536,5 @@
       })();
     </script>
     <script src="/app.js"></script>
-
-    <!-- Floating toolbar for yuketang view — top-level so BrowserView can't cover it -->
-    <div class="yk-view-toolbar" id="yk-toolbar">
-      <button class="yk-view-btn active" id="yk-btn-live" title="显示雨课堂实时页面">雨课堂</button>
-      <button class="yk-view-btn" id="yk-btn-slides" title="查看捕获的课件">课件</button>
-      <button class="yk-view-btn" id="yk-btn-newtab" title="新标签页打开雨课堂">↗ 新窗口</button>
-      <button class="yk-view-btn danger" id="yk-btn-close" title="关闭雨课堂嵌入视图">✕</button>
-    </div>
   </body>
 </html>

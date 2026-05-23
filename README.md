@@ -1,6 +1,6 @@
 # 智慧课堂 (Class Assistant)
 
-> 基于 AI 的雨课堂实时课件解析助手 — 自动捕获课堂图片、智能分类、答题辅助、深度学习
+> 基于 AI 的课堂学习助手 — 实时课件捕获解析 + 离线文档分析 + 翻译词典 + 智能对话
 
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green) ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -10,14 +10,13 @@
 
 > **已内置 API 配置，克隆后直接可用，无需任何额外设置。**
 
-### 方式一：双击启动（推荐 Windows 用户）
+### 方式一：桌面应用（推荐 Windows 用户）
 
 ```
 1. 安装 Node.js 18+  →  https://nodejs.org/
 2. 下载本项目（Clone 或 Download ZIP）
-3. 双击「智慧课堂.exe」
-4. 点击「启动」按钮
-5. 在弹出的浏览器中登录雨课堂 → 完成！
+3. 双击「智慧课堂.exe」→ 点击「启动」
+4. 选择「实时模式」或「离线模式」
 ```
 
 > 首次运行会自动安装依赖（需要网络），之后秒开。
@@ -28,18 +27,36 @@
 git clone https://github.com/Yangxixi2023/Class-assistent.git
 cd Class-assistent
 npm install                         # 安装依赖
-npx playwright install chromium     # 安装浏览器（首次）
+npx playwright install chromium     # 安装浏览器（首次，仅实时模式需要）
 npm start                           # 启动
 ```
 
-### 启动后会发生什么
+---
 
-| 自动打开的窗口 | 用途 |
+## 双模式工作
+
+### 实时模式（在线）
+
+连接雨课堂，自动捕获并解析课件。
+
+| 步骤 | 说明 |
 |:---|:---|
-| **http://127.0.0.1:3000** | 控制面板 — 查看解析结果、答题、提问 |
-| **Chromium 浏览器** | 在这里登录雨课堂，然后正常上课即可 |
+| 启动后选择「实时模式」 | 自动打开 Chromium 浏览器 |
+| 在浏览器中登录雨课堂 | 登录状态会自动保持 |
+| 正常上课 | 程序自动捕获课件、识别题目、生成解析 |
 
-登录雨课堂后，程序会自动监听课堂内容。**不需要任何其他操作。**
+**在线控制栏**：顶部显示课堂链接输入框，支持跳转到自定义课堂链接、重新登录、停止监听。
+
+### 离线模式
+
+上传 PDF 或图片，AI 解析与翻译。
+
+| 步骤 | 说明 |
+|:---|:---|
+| 启动后选择「离线模式」 | 进入文件浏览界面 |
+| 拖放文件或点击上传 | 支持 PDF、PNG、JPG、WebP |
+| PDF 文档可翻页浏览 | 支持自定义缩放比例 |
+| 点击「解析」分析页面 | 快速/深度两种模式 |
 
 ---
 
@@ -52,10 +69,13 @@ npm start                           # 启动
 | **快速 / 深度模式** | 快速模式秒出结果，深度模式更准确详细 |
 | **答题辅助** | 选择题高亮正确选项、填空题/主观题给出参考答案 |
 | **深度思考** | 对课件做知识点剖析、推导原理、典型考题分析 |
-| **AI 对话** | 针对当前课件内容自由提问，支持补充背景信息 |
-| **跟随课程** | 自动跟进最新课件，或停留当前页自主复习 |
-| **哈希去重** | 翻页回看自动匹配已解析内容，不重复消耗额度 |
+| **AI 对话** | 针对当前课件内容自由提问，支持粘贴图片、上传附件 |
+| **划词翻译** | 选中任意文本弹出工具栏，一键翻译 / 解释 / 提问 |
+| **词典式翻译** | 单词显示音标、词性、多义项、例句；句子显示完整翻译+关键词 |
+| **PDF 阅读器** | 离线模式内置 PDF 渲染，支持翻页、缩放、HiDPI |
+| **模型切换** | 支持多 API Key / 多模型，在线切换解析和翻译模型 |
 | **自适应布局** | 拖拽调整比例、面板最小化、布局互换 |
+| **哈希去重** | 翻页回看自动匹配已解析内容，不重复消耗额度 |
 
 ---
 
@@ -64,16 +84,26 @@ npm start                           # 启动
 | 操作 | 说明 |
 |:---|:---|
 | 顶部 **快速 / 深度** 按钮 | 切换解析模式 |
-| **自动解析** 开关 | 新课件是否自动分析 |
-| **跟随课程** 开关 | 是否自动跳到最新课件 |
-| **解析此页** 按钮 | 手动触发当前页面解析 |
+| **模型名称** 按钮 | 点击切换 AI 模型 |
+| **钥匙图标** | 查看当前 API 配置（脱敏显示） |
+| **自动** 开关 | 新课件是否自动分析 |
+| **跟随** 开关 | 是否自动跳到最新课件 |
+| **划词** 开关 | 启用/禁用划词翻译工具栏 |
+| **解析** 按钮 | 手动触发当前页面解析 |
 | **⇆** 按钮 | 课件区和解析区主次互换 |
-| 拖动中间**分隔条** | 调整左右面板宽度 |
-| 课件区域**滚轮** | 前后翻页切换幻灯片 |
-| 解析面板 **─** 按钮 | 最小化 / 恢复面板 |
-| **答案** 按钮 | 显示 / 隐藏参考答案 |
-| **深度思考** 按钮 | 启动深入分析（需要更长时间） |
-| **全屏** 按钮 | 全屏查看解析内容 |
+| **Ctrl+Shift+S** | 截图到对话 |
+| **Ctrl+V** 在聊天框 | 粘贴图片发送 |
+| 滚轮滚动 | 翻页切换课件 / PDF |
+| 拖拽文件到窗口 | 离线模式快速导入 |
+
+### 实时模式专属控制
+
+| 操作 | 说明 |
+|:---|:---|
+| **课堂链接** 输入框 | 输入自定义雨课堂链接并跳转 |
+| **跳转** 按钮 | 导航到输入的课堂链接 |
+| **重新登录** 按钮 | 清除登录状态，重新登录雨课堂 |
+| **停止监听** 按钮 | 关闭浏览器监听 |
 
 ---
 
@@ -101,6 +131,11 @@ OPENAI_API_KEY_FAST=sk-your-fast-key-here    # 可选，留空则用主密钥
 OPENAI_MODEL=claude-sonnet-4-6               # 默认模型
 OPENAI_MODEL_FAST=claude-haiku-4-5-20251001  # 快速模式
 OPENAI_MODEL_DEEP=claude-sonnet-4-6          # 深度模式
+
+# 翻译（独立配置）
+TRANSLATE_API_KEY=sk-your-translate-key
+TRANSLATE_BASE_URL=https://api.deepseek.com
+TRANSLATE_MODEL=deepseek-v4-flash
 ```
 
 > `.env` 文件不会被上传到 GitHub。如果没有 `.env`，程序自动使用内置的 `.env.default`。
@@ -110,7 +145,18 @@ OPENAI_MODEL_DEEP=claude-sonnet-4-6          # 深度模式
 通过 OpenAI 兼容接口调用，支持任意模型：
 - **Claude**: `claude-haiku-4-5-20251001`、`claude-sonnet-4-6`、`claude-opus-4-6` 等
 - **GPT**: `gpt-4o-mini`、`gpt-5.2`、`gpt-5.4` 等
+- **DeepSeek**: `deepseek-v4-flash` 等
 - 其他 OpenAI API 兼容的模型
+
+---
+
+## 打包为桌面应用
+
+```bash
+npm run build       # 使用 electron-builder 打包
+```
+
+打包产物在 `dist/win-unpacked/` 目录，其中 `智慧课堂.exe` 为主程序。
 
 ---
 
@@ -131,7 +177,7 @@ OPENAI_MODEL_DEEP=claude-sonnet-4-6          # 深度模式
 <details>
 <summary><b>Q: 怎么只用面板不开浏览器？</b></summary>
 
-在 `.env` 中设置 `DISABLE_BROWSER_MONITOR=true`，然后重启。
+选择「离线模式」，或在 `.env` 中设置 `DISABLE_BROWSER_MONITOR=true`。
 </details>
 
 <details>
@@ -140,24 +186,33 @@ OPENAI_MODEL_DEEP=claude-sonnet-4-6          # 深度模式
 不需要。浏览器登录状态保存在 `data/browser/` 目录，会自动保持。
 </details>
 
+<details>
+<summary><b>Q: 如何连接自定义课堂链接？</b></summary>
+
+实时模式下，顶部控制栏有「课堂链接」输入框，输入链接后点击「跳转」即可。
+</details>
+
 ---
 
 ## 项目结构
 
 ```
 ├── 智慧课堂.exe                # Windows GUI 启动器（双击即用）
-├── launcher.cs                # 启动器源码（C# WinForms）
-├── .env.default               # 内置默认配置（可直接使用）
+├── electron/
+│   ├── main.js                # Electron 主进程
+│   ├── preload.js             # 预加载脚本
+│   └── launch.js              # 开发模式启动器
+├── .env.default               # 内置默认配置
 ├── src/
-│   ├── server.js              # Express + SSE + API
+│   ├── server.js              # Express + SSE + API 路由
 │   ├── config.js              # 配置加载（.env → .env.default 回退）
 │   ├── app-state.js           # 全局状态 + 实时广播
 │   └── services/
-│       ├── model-service.js       # AI 调用（多 key / 多模型）
+│       ├── model-service.js       # AI 调用（多 key / 多模型 / 翻译）
 │       ├── capture-pipeline.js    # 图片去重 + 分析队列 + 自动重试
 │       └── monitor-service.js     # Playwright 浏览器监控
 ├── public/
-│   ├── index.html             # 面板 UI
+│   ├── index.html             # 面板 UI（CSS + HTML）
 │   ├── app.js                 # 前端交互逻辑
 │   └── assets/                # 图标、插画素材
 └── data/
@@ -168,7 +223,9 @@ OPENAI_MODEL_DEEP=claude-sonnet-4-6          # 深度模式
 ## 开发
 
 ```bash
-npm run dev    # 文件变动自动重启
+npm run dev          # 文件变动自动重启服务
+npm run electron     # 以 Electron 桌面应用模式启动
+npm run build        # 打包为可分发的 exe
 ```
 
 ## 注意事项

@@ -4,4 +4,5 @@ data/browser/*
 !data/browser/.gitkeep
 data/captures/*
 !data/captures/.gitkeep
+dist/
 npm-debug.log*

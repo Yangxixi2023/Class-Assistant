@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+let chromium;
 
 export class MonitorService {
   constructor(config, state, capturePipeline) {
@@ -13,7 +13,19 @@ export class MonitorService {
     this.inClassroom = false;
   }
 
-  async start() {
+  isRunning() {
+    return !!this.context;
+  }
+
+  async start(customUrl) {
+    if (!chromium) {
+      try {
+        const pw = await import('playwright');
+        chromium = pw.chromium;
+      } catch {
+        throw new Error('Playwright 未安装，请运行 npx playwright install chromium');
+      }
+    }
     this.context = await chromium.launchPersistentContext(this.config.browserDataDir, {
       headless: this.config.browserHeadless,
       viewport: { width: 1440, height: 960 }
@@ -23,7 +35,8 @@ export class MonitorService {
     this.primaryPage = this.context.pages()[0] || (await this.context.newPage());
     this.attachPageListeners(this.primaryPage);
 
-    await this.primaryPage.goto(this.config.yuketangUrl, {
+    const targetUrl = customUrl || this.config.yuketangUrl;
+    await this.primaryPage.goto(targetUrl, {
       waitUntil: 'domcontentloaded'
     });
 
@@ -290,6 +303,16 @@ export class MonitorService {
     this.inClassroom = false;
     this.state.setStatus({ browserState: 'waiting-login' });
     this.state.addLog('已清除登录状态，请重新登录雨课堂。');
+  }
+
+  async navigate(url) {
+    if (!this.primaryPage || this.primaryPage.isClosed()) {
+      throw new Error('浏览器未就绪');
+    }
+    await this.primaryPage.goto(url, { waitUntil: 'domcontentloaded' });
+    const title = await this.primaryPage.title().catch(() => '');
+    this.updateBrowserStatus(title, url);
+    this.state.addLog(`已导航到：${url}`);
   }
 
   isTrackableUrl(url) {

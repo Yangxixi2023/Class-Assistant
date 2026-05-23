@@ -21,6 +21,8 @@ const SYSTEM_PROMPT = [
   '- 语言正式、简洁、学术化',
   '- 课件内容：提炼要点，给出理解辅助而非复述原文',
   '- renderedMarkdown 使用简洁的 Markdown，用二级标题分节',
+  '- 数学公式必须使用 LaTeX 表示：行内公式用 $...$ 包裹，独立公式用 $$...$$ 包裹',
+  '- 准确识别并还原图片中的数学符号、公式、矩阵、方程组等',
   '',
   'payload 格式：',
   'A. 课件(1)：{ summary(一句话总结), keyPoints(要点数组), tips(学习建议数组) }',
@@ -33,6 +35,7 @@ const SYSTEM_PROMPT = [
 const DEEP_THINK_PROMPT = [
   '你是学科专家。对以下课堂内容做深度分析。',
   '要求：正式学术语言，无 emoji，结构清晰。',
+  '数学公式使用 LaTeX：行内 $...$ ，独立 $$...$$。',
   '输出 Markdown，包含：',
   '## 核心概念剖析',
   '## 推导与原理',
@@ -44,10 +47,38 @@ const DEEP_THINK_PROMPT = [
 const CHAT_SYSTEM_PROMPT = [
   '你是课堂助教。用简洁准确的语言回答学生问题。',
   '不使用 emoji 和网络用语。必要时用公式或代码辅助说明。',
+  '数学公式使用 LaTeX：行内 $...$ ，独立 $$...$$。',
   '回答使用 Markdown 格式。'
 ].join('\n');
 
 marked.setOptions({ breaks: true, gfm: true });
+
+// Server-side: preserve LaTeX for client-side KaTeX rendering
+marked.use({
+  extensions: [{
+    name: 'inlineMath',
+    level: 'inline',
+    start(src) { return src.indexOf('$'); },
+    tokenizer(src) {
+      const match = src.match(/^\$([^\$\n]+?)\$/);
+      if (match) return { type: 'inlineMath', raw: match[0], text: match[1] };
+    },
+    renderer(token) {
+      return '<span class="math-inline" data-latex="' + token.text.replace(/"/g, '&quot;') + '">$' + token.text + '$</span>';
+    }
+  }, {
+    name: 'blockMath',
+    level: 'block',
+    start(src) { return src.indexOf('$$'); },
+    tokenizer(src) {
+      const match = src.match(/^\$\$([\s\S]+?)\$\$/);
+      if (match) return { type: 'blockMath', raw: match[0], text: match[1].trim() };
+    },
+    renderer(token) {
+      return '<div class="math-block" data-latex="' + token.text.replace(/"/g, '&quot;') + '">$$' + token.text + '$$</div>';
+    }
+  }]
+});
 
 class RetryableAnalysisError extends Error {
   constructor(message) {
@@ -155,29 +186,37 @@ export class ModelService {
     this.clientFast = config.openaiApiKeyFast && config.openaiApiKeyFast !== config.openaiApiKey
       ? new OpenAI({ apiKey: config.openaiApiKeyFast, baseURL: config.openaiBaseUrl || undefined })
       : this.client;
+    this.clientTranslate = config.translateApiKey
+      ? new OpenAI({ apiKey: config.translateApiKey, baseURL: config.translateBaseUrl || config.openaiBaseUrl || undefined })
+      : this.client;
     this.overrideFast = '';
     this.overrideDeep = '';
+    this.overrideTranslate = '';
   }
 
-  setModels({ fast, deep }) {
+  setModels({ fast, deep, translate }) {
     if (fast) this.overrideFast = fast;
     if (deep) this.overrideDeep = deep;
+    if (translate) this.overrideTranslate = translate;
   }
 
   getModel(mode = 'fast') {
     if (mode === 'deep') return this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel;
+    if (mode === 'translate') return this.overrideTranslate || this.config.translateModel || 'deepseek-v4-flash';
     return this.overrideFast || this.config.openaiModelFast || this.config.openaiModel;
   }
 
   getClient(mode = 'fast') {
     if (mode === 'deep') return this.client;
+    if (mode === 'translate') return this.clientTranslate || this.client;
     return this.clientFast || this.client;
   }
 
   getCurrentModels() {
     return {
       fast: this.overrideFast || this.config.openaiModelFast || this.config.openaiModel,
-      deep: this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel
+      deep: this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel,
+      translate: this.overrideTranslate || this.config.translateModel || 'deepseek-v4-flash'
     };
   }
 
@@ -258,5 +297,118 @@ export class ModelService {
     });
 
     return completion.choices?.[0]?.message?.content || '无法回答。';
+  }
+
+  async translate({ text, targetLang = '中文', sourceLang = '' }) {
+    const client = this.getClient('translate');
+    if (!client) throw new Error('未配置翻译 API Key');
+
+    const langHint = sourceLang ? `源语言：${sourceLang}，` : '';
+
+    const systemPrompt = `你是一个专业的词典式翻译助手。${langHint}目标语言：${targetLang}。
+
+请先判断用户输入是单个词/短语还是完整句子，然后按对应格式返回 **纯 JSON**（不要 markdown 代码块包裹）。
+
+■ 如果是单个单词或短语，返回：
+{
+  "type": "word",
+  "original": "原文",
+  "phonetic": "音标或拼音提示（英文给音标，中文给拼音，其他语言给罗马音等）",
+  "wordType": "词性，如 n. / v. / adj. / adv. / phrase 等",
+  "meanings": [
+    { "def": "义项1的${targetLang}释义", "example": "该义项的例句（原语言）" },
+    { "def": "义项2的${targetLang}释义", "example": "该义项的例句（原语言）" }
+  ],
+  "translation": "最常用的${targetLang}翻译"
+}
+
+■ 如果是完整句子或段落，返回：
+{
+  "type": "sentence",
+  "original": "原文",
+  "translation": "完整的${targetLang}翻译",
+  "vocabulary": [
+    { "word": "句中关键词1", "meaning": "该词的${targetLang}释义" },
+    { "word": "句中关键词2", "meaning": "该词的${targetLang}释义" }
+  ]
+}
+
+注意：
+- meanings 数组至少包含 1 项，最多 4 项，覆盖主要义项。
+- vocabulary 挑选 2-5 个关键/难点词汇。
+- 遇到专业术语请使用目标语言中该领域的通用译法。
+- 只返回合法 JSON，不要附加任何解释文字。`;
+
+    const completion = await client.chat.completions.create({
+      model: this.getModel('translate'),
+      temperature: 0.1,
+      max_tokens: 2048,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text }
+      ]
+    });
+
+    const raw = (completion.choices?.[0]?.message?.content || '').trim();
+
+    // Try to parse structured JSON; fall back to plain-text wrapper
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return JSON.stringify(parsed);
+    } catch {
+      // Model didn't return valid JSON — wrap plain text so the caller still gets consistent format
+      return JSON.stringify({
+        type: 'sentence',
+        original: text,
+        translation: raw,
+        vocabulary: []
+      });
+    }
+  }
+
+  async listModels(apiKey, baseUrl) {
+    const client = new OpenAI({
+      apiKey: apiKey || this.config.openaiApiKey,
+      baseURL: baseUrl || this.config.openaiBaseUrl || undefined
+    });
+    const list = await client.models.list();
+    const models = [];
+    for await (const model of list) {
+      models.push(model.id);
+    }
+    models.sort();
+    return models;
+  }
+
+  async listAllModels() {
+    const seen = new Set();
+    const results = [];
+
+    const endpoints = [
+      { key: this.config.openaiApiKey, url: this.config.openaiBaseUrl },
+    ];
+    if (this.config.openaiApiKeyFast && this.config.openaiApiKeyFast !== this.config.openaiApiKey) {
+      endpoints.push({ key: this.config.openaiApiKeyFast, url: this.config.openaiBaseUrl });
+    }
+    if (this.config.translateApiKey && (this.config.translateApiKey !== this.config.openaiApiKey || this.config.translateBaseUrl !== this.config.openaiBaseUrl)) {
+      endpoints.push({ key: this.config.translateApiKey, url: this.config.translateBaseUrl });
+    }
+
+    const fetches = endpoints.map(async (ep) => {
+      if (!ep.key) return [];
+      try {
+        return await this.listModels(ep.key, ep.url);
+      } catch { return []; }
+    });
+
+    const allLists = await Promise.all(fetches);
+    for (const list of allLists) {
+      for (const m of list) {
+        if (!seen.has(m)) { seen.add(m); results.push(m); }
+      }
+    }
+    results.sort();
+    return results;
   }
 }

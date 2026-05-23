@@ -155,6 +155,68 @@ export class CapturePipeline {
     }
   }
 
+  async submitOffline({ url, buffer, fileName, webPath, forceAnalyze = false }) {
+    const hash = crypto.createHash('sha1').update(buffer).digest('hex');
+
+    if (this.seenHashes.has(hash)) {
+      const existingId = this.seenHashes.get(hash);
+      const existing = this.state.findCapture(existingId);
+      if (existing) return existing;
+    }
+
+    const image = sharp(buffer, { failOn: 'none' });
+    const metadata = await image.metadata();
+
+    const shouldAnalyze = forceAnalyze || this.autoAnalyze;
+
+    const capture = {
+      id: crypto.randomUUID(),
+      source: 'upload',
+      url,
+      hash,
+      status: shouldAnalyze ? 'queued' : 'captured',
+      fileName,
+      webPath,
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+      bytes: buffer.length,
+      categoryId: null,
+      categoryName: '',
+      confidence: 0,
+      reason: '',
+      title: '',
+      payload: null,
+      renderedHtml: '',
+      renderedMarkdown: '',
+      deepThinkStatus: '',
+      deepThinkMarkdown: '',
+      deepThinkHtml: '',
+      error: '',
+      attemptCount: 0,
+      maxAttempts: this.config.analysisMaxAttempts,
+      retryAt: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    this.seenHashes.set(hash, capture.id);
+    this.state.addCapture(capture);
+
+    if (shouldAnalyze) {
+      this.queue.push({
+        id: capture.id,
+        imageUrl: url,
+        filePath: path.join(this.config.captureDir, fileName),
+        attemptCount: 1,
+        mode: this.analyzeMode
+      });
+      this.state.setStatus({ queueSize: this.queue.length });
+      void this.process();
+    }
+
+    return capture;
+  }
+
   async analyzeCapture(captureId, mode) {
     const capture = this.state.findCapture(captureId);
     if (!capture) return;

@@ -3,6 +3,7 @@ import http from 'http';
 import path from 'path';
 
 import express from 'express';
+import multer from 'multer';
 import open from 'open';
 
 import { AppState } from './app-state.js';
@@ -13,6 +14,7 @@ import { MonitorService } from './services/monitor-service.js';
 
 async function ensureDirectories() {
   await fs.mkdir(config.captureDir, { recursive: true });
+  await fs.mkdir(path.join(config.captureDir, 'uploads'), { recursive: true });
   await fs.mkdir(config.browserDataDir, { recursive: true });
 }
 
@@ -71,10 +73,10 @@ async function main() {
   });
 
   app.post('/api/switch-model', (req, res) => {
-    const { fast, deep } = req.body;
-    modelService.setModels({ fast, deep });
+    const { fast, deep, translate } = req.body;
+    modelService.setModels({ fast, deep, translate });
     const current = modelService.getCurrentModels();
-    state.setStatus({ modelFast: current.fast, modelDeep: current.deep });
+    state.setStatus({ modelFast: current.fast, modelDeep: current.deep, modelTranslate: current.translate });
     res.json({ ok: true, ...current });
   });
 
@@ -151,29 +153,51 @@ async function main() {
     }
   });
 
+  app.post('/api/navigate', async (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ ok: false, error: '未提供 URL' });
+    try {
+      await monitorService.navigate(url);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/translate', async (req, res) => {
+    const { text, targetLang, sourceLang } = req.body;
+    if (!text) return res.status(400).json({ ok: false, error: '未提供文本' });
+    try {
+      const result = await modelService.translate({ text, targetLang, sourceLang });
+      res.json({ ok: true, translation: result });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   app.get('/api/config', (_req, res) => {
+    const mask = (k) => k && k.length >= 8 ? k.slice(0, 5) + '...' + k.slice(-4) : (k ? '****' : '');
     res.json({
       baseUrl: config.openaiBaseUrl,
       model: config.openaiModel,
       modelFast: config.openaiModelFast,
       modelDeep: config.openaiModelDeep,
-      hasKey: Boolean(config.openaiApiKey)
+      translateModel: config.translateModel,
+      translateBaseUrl: config.translateBaseUrl,
+      hasKey: Boolean(config.openaiApiKey),
+      hasTranslateKey: Boolean(config.translateApiKey),
+      maskedKey: mask(config.openaiApiKey),
+      maskedKeyFast: mask(config.openaiApiKeyFast),
+      maskedTranslateKey: mask(config.translateApiKey)
     });
   });
 
-  app.get('/api/models', async (_req, res) => {
+  app.get('/api/models', async (req, res) => {
+    const { apiKey, baseUrl } = req.query;
     try {
-      const { default: OpenAI } = await import('openai');
-      const client = new OpenAI({
-        apiKey: config.openaiApiKey,
-        baseURL: config.openaiBaseUrl || undefined
-      });
-      const list = await client.models.list();
-      const models = [];
-      for await (const model of list) {
-        models.push(model.id);
-      }
-      models.sort();
+      const models = apiKey
+        ? await modelService.listModels(apiKey, baseUrl || '')
+        : await modelService.listAllModels();
       res.json({ ok: true, models });
     } catch (error) {
       res.json({ ok: false, models: [], error: error.message });
@@ -181,7 +205,7 @@ async function main() {
   });
 
   app.post('/api/config', async (req, res) => {
-    const { baseUrl, apiKey, model, modelFast, modelDeep } = req.body;
+    const { baseUrl, apiKey, apiKeyFast, model, modelFast, modelDeep, translateApiKey, translateBaseUrl, translateModel } = req.body;
     try {
       const envPath = path.join(config.rootDir, '.env');
       let envContent = await fs.readFile(envPath, 'utf-8').catch(() => '');
@@ -198,9 +222,13 @@ async function main() {
 
       upsert('OPENAI_BASE_URL', baseUrl);
       if (apiKey && apiKey !== '') upsert('OPENAI_API_KEY', apiKey);
+      if (apiKeyFast && apiKeyFast !== '') upsert('OPENAI_API_KEY_FAST', apiKeyFast);
       upsert('OPENAI_MODEL', model);
       upsert('OPENAI_MODEL_FAST', modelFast);
       upsert('OPENAI_MODEL_DEEP', modelDeep);
+      if (translateApiKey && translateApiKey !== '') upsert('TRANSLATE_API_KEY', translateApiKey);
+      upsert('TRANSLATE_BASE_URL', translateBaseUrl);
+      upsert('TRANSLATE_MODEL', translateModel);
 
       await fs.writeFile(envPath, envContent.trim() + '\n', 'utf-8');
 
@@ -230,6 +258,134 @@ async function main() {
     }
   });
 
+  // ── File upload (offline mode / attachments) ──
+  const upload = multer({
+    dest: path.join(config.captureDir, 'uploads'),
+    limits: { fileSize: 20 * 1024 * 1024 }
+  });
+
+  app.post('/api/upload', upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ ok: false, error: '未上传文件' });
+
+    try {
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const isPdf = ext === '.pdf';
+      const isImage = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext);
+
+      if (!isPdf && !isImage) {
+        await fs.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ ok: false, error: '不支持的文件格式' });
+      }
+
+      const newName = `${Date.now()}-upload${ext}`;
+      const newPath = path.join(config.captureDir, newName);
+      await fs.rename(req.file.path, newPath);
+
+      if (isPdf) {
+        const pdfParse = await import('pdf-parse');
+        const pdfBuffer = await fs.readFile(newPath);
+        const pdfData = await pdfParse.default(pdfBuffer);
+        const textContent = pdfData.text || '';
+
+        res.json({
+          ok: true,
+          type: 'pdf',
+          fileName: newName,
+          webPath: `/captures/${newName}`,
+          text: textContent.slice(0, 50000),
+          pages: pdfData.numpages
+        });
+      } else {
+        const webPath = `/captures/${newName}`;
+        const imageUrl = `http://127.0.0.1:${config.port}${webPath}`;
+        const buffer = await fs.readFile(newPath);
+
+        const capture = await capturePipeline.submitOffline({
+          url: imageUrl,
+          buffer,
+          fileName: newName,
+          webPath,
+          forceAnalyze: true
+        });
+
+        res.json({ ok: true, type: 'image', capture });
+      }
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/chat-with-attachment', upload.single('file'), async (req, res) => {
+    const { messages: messagesJson, captureId, background } = req.body;
+    let messages = [];
+    try { messages = JSON.parse(messagesJson || '[]'); } catch { }
+
+    const capture = captureId ? state.findCapture(captureId) : null;
+    let attachmentContext = '';
+
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (ext === '.pdf') {
+        try {
+          const pdfParse = await import('pdf-parse');
+          const pdfBuffer = await fs.readFile(req.file.path);
+          const pdfData = await pdfParse.default(pdfBuffer);
+          attachmentContext = `\n\n附件PDF内容（前5000字）：\n${(pdfData.text || '').slice(0, 5000)}`;
+        } catch { }
+      }
+      await fs.unlink(req.file.path).catch(() => {});
+    }
+
+    try {
+      const reply = await modelService.chat({
+        messages,
+        imageUrl: capture?.url,
+        contextMarkdown: (capture?.renderedMarkdown || '') + attachmentContext,
+        background: background || ''
+      });
+      res.json({ ok: true, reply });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/analyze-upload', async (req, res) => {
+    const { fileName, mode } = req.body;
+    if (!fileName) return res.status(400).json({ ok: false, error: '未指定文件' });
+
+    const webPath = `/captures/${fileName}`;
+    const imageUrl = `http://127.0.0.1:${config.port}${webPath}`;
+
+    try {
+      const result = await modelService.analyzeImage({ imageUrl, mode: mode || 'fast' });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // ── Start/stop browser monitor on demand ──
+  app.post('/api/start-monitor', async (req, res) => {
+    if (monitorService.isRunning()) {
+      return res.json({ ok: true, message: '监听已在运行' });
+    }
+    try {
+      state.setStatus({ browserState: 'starting' });
+      const { url } = req.body || {};
+      await monitorService.start(url || '');
+      res.json({ ok: true });
+    } catch (error) {
+      state.setStatus({ browserState: 'error' });
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/stop-monitor', async (_req, res) => {
+    await monitorService.stop().catch(() => {});
+    state.setStatus({ browserState: 'disabled' });
+    res.json({ ok: true });
+  });
+
   app.get('*', (_req, res) => {
     res.sendFile(path.join(config.publicDir, 'index.html'));
   });
@@ -244,21 +400,8 @@ async function main() {
       });
     }
 
-    if (config.disableBrowserMonitor) {
-      state.setStatus({ browserState: 'disabled' });
-      state.addLog('已跳过浏览器监听，当前运行在仅面板模式。');
-      return;
-    }
-
-    try {
-      await monitorService.start();
-    } catch (error) {
-      state.setStatus({ browserState: 'error' });
-      state.addLog(
-        `浏览器监听启动失败：${error instanceof Error ? error.message : String(error)}`,
-        'error'
-      );
-    }
+    state.setStatus({ browserState: 'disabled' });
+    state.addLog('等待用户选择模式...');
   });
 
   const shutdown = async () => {

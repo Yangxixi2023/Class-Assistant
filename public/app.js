@@ -2594,7 +2594,7 @@
       newtabBtn.addEventListener('click', function() {
         window.electronAPI.getYuketangUrl().then(function(url) {
           var openUrl = url || 'https://www.yuketang.cn/web/?index';
-          window.electronAPI.openExternal(openUrl);
+          window.electronAPI.openYuketangWindow(openUrl);
           // 关闭内嵌视图，切换回课件
           state._ykViewVisible = false;
           window.electronAPI.stopYuketang();

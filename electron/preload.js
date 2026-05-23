@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   getClipboardImage: () => ipcRenderer.invoke('get-clipboard-image'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openYuketangWindow: (url) => ipcRenderer.invoke('open-yuketang-window', url),
   onScreenshotSlide: (callback) => ipcRenderer.on('screenshot-slide', () => callback()),
   onBrowserStatus: (callback) => ipcRenderer.on('browser-status', (_e, data) => callback(data)),
   startYuketang: (url) => ipcRenderer.invoke('start-yuketang', url),

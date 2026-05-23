@@ -7,6 +7,7 @@ const https = require('https');
 
 let mainWindow = null;
 let yuketangView = null;
+let yuketangWindow = null;
 let tray = null;
 let serverProcess = null;
 let scanTimer = null;
@@ -334,6 +335,29 @@ ipcMain.handle('get-clipboard-image', () => {
 });
 
 ipcMain.handle('open-external', (_, url) => shell.openExternal(url));
+
+ipcMain.handle('open-yuketang-window', async (_, url) => {
+  const openUrl = url || 'https://www.yuketang.cn/web/?index';
+  if (yuketangWindow && !yuketangWindow.isDestroyed()) {
+    yuketangWindow.loadURL(openUrl);
+    yuketangWindow.focus();
+    return { ok: true };
+  }
+  yuketangWindow = new BrowserWindow({
+    width: 1100, height: 750,
+    icon: fs.existsSync(icoPath) ? icoPath : iconPath,
+    title: '雨课堂',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      partition: 'persist:yuketang',
+      sandbox: true
+    }
+  });
+  yuketangWindow.loadURL(openUrl);
+  yuketangWindow.on('closed', () => { yuketangWindow = null; });
+  return { ok: true };
+});
 
 ipcMain.handle('start-yuketang', async (_, customUrl) => {
   try {

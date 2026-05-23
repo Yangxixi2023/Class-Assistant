@@ -352,15 +352,25 @@ ipcMain.handle('navigate-yuketang', async (_, url) => {
 });
 
 ipcMain.handle('relogin-yuketang', async () => {
-  if (!yuketangView) return { ok: false, error: '浏览器未启动' };
   try {
-    const ses = yuketangView.webContents.session;
-    await ses.clearStorageData();
-    await ses.clearCache();
-    captureReady = false;
-    inClassroom = false;
-    postToServer('/api/browser-status', { browserState: 'waiting-login' });
-    await yuketangView.webContents.loadURL('https://www.yuketang.cn/web/?index');
+    if (!yuketangView) {
+      await startYuketangView('https://www.yuketang.cn/web/?index');
+      const ses = yuketangView.webContents.session;
+      await ses.clearStorageData();
+      await ses.clearCache();
+      captureReady = false;
+      inClassroom = false;
+      postToServer('/api/browser-status', { browserState: 'waiting-login' });
+      await yuketangView.webContents.loadURL('https://www.yuketang.cn/web/?index');
+    } else {
+      const ses = yuketangView.webContents.session;
+      await ses.clearStorageData();
+      await ses.clearCache();
+      captureReady = false;
+      inClassroom = false;
+      postToServer('/api/browser-status', { browserState: 'waiting-login' });
+      await yuketangView.webContents.loadURL('https://www.yuketang.cn/web/?index');
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };

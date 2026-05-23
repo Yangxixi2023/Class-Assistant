@@ -2701,9 +2701,18 @@
       reloginBtn.addEventListener('click', function() {
         showToast('正在重新登录...');
         if (isElectron) {
+          state._ykViewVisible = true;
           window.electronAPI.reloginYuketang().then(function(r) {
-            if (r.ok) showToast('已清除登录，请重新登录雨课堂');
-            else showToast('重新登录失败: ' + (r.error || ''));
+            if (r.ok) {
+              showToast('已清除登录，请重新登录雨课堂');
+              initYuketangToolbar();
+              syncViewBounds();
+              window.electronAPI.showYuketangView();
+              var toolbar = $('#yk-toolbar');
+              if (toolbar) toolbar.classList.add('visible');
+            } else {
+              showToast('重新登录失败: ' + (r.error || ''));
+            }
           });
         } else {
           fetch('/api/relogin', { method: 'POST' })

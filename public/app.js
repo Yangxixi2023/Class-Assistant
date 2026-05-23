@@ -196,6 +196,13 @@
       translateEl.textContent = full;
       translateEl.parentElement.title = full;
     }
+    // Sync chat model label
+    var chatLabel = $('#chat-model-label');
+    if (chatLabel && state.models) {
+      var chatM = state.chatModel || state.models.fast || '--';
+      chatLabel.textContent = chatM.length > 15 ? chatM.slice(0, 15) + '…' : chatM;
+      chatLabel.parentElement.title = chatM;
+    }
   }
 
   function loadCurrentModels() {
@@ -1127,9 +1134,11 @@
         var mMode = item.dataset.modelMode || state.analyzeMode;
 
         if (mMode === 'chat') {
+          // Chat mode: set local override and switch fast model on server
           state.chatModel = selectedModel;
           var label = $('#chat-model-label');
-          if (label) label.textContent = selectedModel.length > 12 ? selectedModel.slice(0, 12) + '…' : selectedModel;
+          if (label) label.textContent = selectedModel.length > 15 ? selectedModel.slice(0, 15) + '…' : selectedModel;
+          label.parentElement.title = selectedModel;
           showToast('对话模型: ' + selectedModel);
           var dd = document.querySelector('.model-dropdown');
           if (dd) dd.remove();
@@ -1164,7 +1173,7 @@
     var existing = document.querySelector('.model-dropdown');
     if (existing) { existing.remove(); resumeYuketangView(); return; }
 
-    var modeLabel = dropdownMode === 'chat' ? '对话' : (dropdownMode === 'translate' ? '翻译' : (dropdownMode === 'deep' ? '深度' : '快速'));
+    var modeLabel = dropdownMode === 'translate' ? '翻译' : (dropdownMode === 'deep' ? '深度' : (dropdownMode === 'chat' ? '对话' : '快速'));
     var currentModel = '';
     if (dropdownMode === 'chat') {
       currentModel = state.chatModel || (state.models ? state.models.fast : '') || '';
@@ -1188,7 +1197,7 @@
       dropdown.style.left = Math.max(4, rect.left) + 'px';
     }
 
-    var content = '<div class="model-dropdown-header">选择' + modeLabel + '模型</div>';
+    var content = '<div class="model-dropdown-header">切换模型</div>';
     if (state.availableModels.length) {
       content += state.availableModels.map(function(m) {
         var active = m === currentModel ? ' active' : '';
@@ -1235,10 +1244,14 @@
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.baseUrl) $('#cfg-url').value = d.baseUrl;
-        if (d.model) $('#cfg-model').value = d.model;
-        if (d.modelFast) { var el = $('#cfg-model-fast'); if (el) el.value = d.modelFast; }
-        if (d.modelDeep) { var el = $('#cfg-model-deep'); if (el) el.value = d.modelDeep; }
-        if (d.translateModel) { var el = $('#cfg-translate-model'); if (el) el.value = d.translateModel; }
+        // Use runtime models (state.models) if available, fallback to config file values
+        var mFast = (state.models && state.models.fast) || d.modelFast || d.model || '';
+        var mDeep = (state.models && state.models.deep) || d.modelDeep || d.model || '';
+        var mTrans = (state.models && state.models.translate) || d.translateModel || '';
+        $('#cfg-model').value = d.model || '';
+        var elF = $('#cfg-model-fast'); if (elF) elF.value = mFast;
+        var elD = $('#cfg-model-deep'); if (elD) elD.value = mDeep;
+        var elTm = $('#cfg-translate-model'); if (elTm) elTm.value = mTrans;
         if (d.translateBaseUrl) { var el = $('#cfg-translate-url'); if (el) el.value = d.translateBaseUrl; }
         var keyEl = $('#cfg-key');
         if (keyEl) keyEl.placeholder = d.maskedKey ? ('当前: ' + d.maskedKey) : 'sk-...';
@@ -1274,7 +1287,7 @@
   }
 
   function renderModelSuggestions(models) {
-    var containers = ['cfg-model', 'cfg-model-fast', 'cfg-model-deep'];
+    var containers = ['cfg-model', 'cfg-model-fast', 'cfg-model-deep', 'cfg-translate-model'];
     containers.forEach(function(inputId) {
       var input = $('#' + inputId);
       if (!input) return;
@@ -1997,11 +2010,30 @@
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok) {
-          showToast('配置已保存，重启后生效');
+          // Also switch models immediately (not just on restart)
+          var switchPayload = {};
+          if (cfgPayload.modelFast) switchPayload.fast = cfgPayload.modelFast;
+          if (cfgPayload.modelDeep) switchPayload.deep = cfgPayload.modelDeep;
+          if (cfgPayload.translateModel) switchPayload.translate = cfgPayload.translateModel;
+          if (!cfgPayload.modelFast && cfgPayload.model) switchPayload.fast = cfgPayload.model;
+          if (!cfgPayload.modelDeep && cfgPayload.model) switchPayload.deep = cfgPayload.model;
+          fetch('/api/switch-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(switchPayload)
+          }).then(function(r2) { return r2.json(); }).then(function(d2) {
+            if (d2.ok) {
+              state.models = { fast: d2.fast, deep: d2.deep, translate: d2.translate };
+              renderModeButtons();
+            }
+          }).catch(function() {});
+
+          showToast('配置已保存并生效');
           els.settingsModal.style.display = 'none';
           resumeYuketangView();
           state._configCache = null;
           loadApiKeyDisplay();
+          loadAvailableModels();
         } else {
           showToast('保存失败: ' + d.error);
         }

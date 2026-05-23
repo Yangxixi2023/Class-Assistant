@@ -211,7 +211,7 @@ export class CapturePipeline {
         mode: this.analyzeMode
       });
       this.state.setStatus({ queueSize: this.queue.length });
-      void this.process();
+      void this.processQueue();
     }
 
     return capture;

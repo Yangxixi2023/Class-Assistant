@@ -1144,10 +1144,15 @@
     var dropdown = document.createElement('div');
     dropdown.className = 'model-dropdown';
     dropdown.dataset.dropdownMode = dropdownMode;
-    dropdown.style.top = (rect.bottom + 4) + 'px';
-    var rightPos = window.innerWidth - rect.right;
-    if (rightPos < 0) rightPos = 0;
-    dropdown.style.left = Math.max(4, rect.left) + 'px';
+    // Chat model opens upward (button is near bottom); others open downward
+    if (dropdownMode === 'chat') {
+      dropdown.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+      dropdown.style.left = Math.max(4, rect.left) + 'px';
+      dropdown.style.maxHeight = '300px';
+    } else {
+      dropdown.style.top = (rect.bottom + 4) + 'px';
+      dropdown.style.left = Math.max(4, rect.left) + 'px';
+    }
 
     var content = '<div class="model-dropdown-header">选择' + modeLabel + '模型</div>';
     if (state.availableModels.length) {
@@ -2431,7 +2436,8 @@
     var accumulated = '';
     fetchStream('/api/translate-stream', { text: text, targetLang: '中文' }, function(chunk) {
       accumulated += chunk;
-      body.innerHTML = '<div class="translate-content streaming">' + esc(accumulated) + '</div>';
+      // JSON is building up — show spinner with character count
+      body.innerHTML = '<div class="translate-loading">翻译中... (' + accumulated.length + ' 字)</div>';
     }, function() {
       body.innerHTML = renderTranslateResult(accumulated);
     }, function(err) {

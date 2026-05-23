@@ -140,7 +140,8 @@
   function renderStatus(status) {
     var dot = els.navStatus.querySelector('.status-dot');
     var map = {
-      running: '课堂进行中',
+      'in-class': '课堂进行中',
+      running: '已登录 · 浏览中',
       'waiting-login': '请登录雨课堂',
       starting: '启动中',
       error: '连接异常',
@@ -153,7 +154,8 @@
     }
     els.statusText.textContent = statusText;
 
-    if (status.browserState === 'running') dot.style.background = 'var(--green)';
+    if (status.browserState === 'in-class') dot.style.background = 'var(--accent)';
+    else if (status.browserState === 'running') dot.style.background = '#3b82f6';
     else if (status.browserState === 'waiting-login') dot.style.background = 'var(--amber)';
     else if (status.browserState === 'error') dot.style.background = 'var(--red)';
     else dot.style.background = 'var(--text-3)';

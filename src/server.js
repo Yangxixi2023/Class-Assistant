@@ -142,6 +142,15 @@ async function main() {
     }
   });
 
+  app.post('/api/relogin', async (_req, res) => {
+    try {
+      await monitorService.relogin();
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   app.get('/api/config', (_req, res) => {
     res.json({
       baseUrl: config.openaiBaseUrl,

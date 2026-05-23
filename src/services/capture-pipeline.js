@@ -55,7 +55,7 @@ export class CapturePipeline {
     this.analyzeMode = mode;
   }
 
-  async submit({ url, source, buffer, contentType, forceAnalyze = false }) {
+  async submit({ url, source, buffer, contentType, forceAnalyze = false, inClass = true }) {
     if (!url || !buffer || buffer.length < this.config.imageMinBytes) {
       return;
     }
@@ -99,12 +99,14 @@ export class CapturePipeline {
 
       await fs.writeFile(absolutePath, buffer);
 
+      const shouldAnalyze = forceAnalyze || (this.autoAnalyze && inClass);
+
       const capture = {
         id: crypto.randomUUID(),
         source,
         url,
         hash,
-        status: this.autoAnalyze || forceAnalyze ? 'queued' : 'captured',
+        status: shouldAnalyze ? 'queued' : 'captured',
         fileName,
         webPath: `/captures/${fileName}`,
         width,
@@ -133,7 +135,7 @@ export class CapturePipeline {
       this.state.addCapture(capture);
       this.state.setStatus({ lastCaptureAt: capture.createdAt });
 
-      if (this.autoAnalyze || forceAnalyze) {
+      if (shouldAnalyze) {
         this.queue.push({
           id: capture.id,
           imageUrl: url,

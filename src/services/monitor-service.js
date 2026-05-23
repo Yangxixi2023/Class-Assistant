@@ -10,6 +10,7 @@ export class MonitorService {
     this.scanTimer = null;
     this.visibleUrls = new Set();
     this.captureReady = false;
+    this.inClassroom = false;
   }
 
   async start() {
@@ -79,6 +80,7 @@ export class MonitorService {
 
     const url = response.url();
     if (!this.isTrackableUrl(url)) return;
+    if (!this.isLikelySlideImage(url)) return;
 
     const headers = response.headers();
     const contentType = headers['content-type'] || '';
@@ -87,7 +89,10 @@ export class MonitorService {
     const buffer = await response.body().catch(() => null);
     if (!buffer) return;
 
-    await this.capturePipeline.submit({ url, source: 'network', buffer, contentType });
+    await this.capturePipeline.submit({
+      url, source: 'network', buffer, contentType,
+      inClass: this.inClassroom
+    });
   }
 
   async scanVisibleImages() {
@@ -275,17 +280,61 @@ export class MonitorService {
     }
   }
 
+  async relogin() {
+    if (!this.primaryPage || this.primaryPage.isClosed()) {
+      throw new Error('浏览器未就绪');
+    }
+    await this.context.clearCookies();
+    await this.primaryPage.goto(this.config.yuketangUrl, { waitUntil: 'domcontentloaded' });
+    this.captureReady = false;
+    this.inClassroom = false;
+    this.state.setStatus({ browserState: 'waiting-login' });
+    this.state.addLog('已清除登录状态，请重新登录雨课堂。');
+  }
+
   isTrackableUrl(url) {
     return url.startsWith('http://') || url.startsWith('https://');
   }
 
+  isClassroomPage(url, title) {
+    if (!url) return false;
+    const classPatterns = [
+      /\/lesson\//, /\/classroom\//, /\/presentation\//,
+      /\/pro\/lms\/.*\/studycontent/,
+      /\/v2\/web\/index/,
+      /problemset/, /quiz/, /exercise/
+    ];
+    const titlePatterns = [/课堂/, /课件/, /直播/, /互动/, /答题/, /签到/];
+    return classPatterns.some(p => p.test(url)) ||
+           titlePatterns.some(p => p.test(title || ''));
+  }
+
+  isLikelySlideImage(url) {
+    if (!url) return false;
+    const slidePatterns = [
+      /\/slide[_\/]/, /\/ppt[_\/]/, /\/image[_\/].*\d+/,
+      /\/courseware\//, /\/resource[_\/]/,
+      /oss.*\.yuketang\.cn/, /thunder.*\.yuketang\.cn/
+    ];
+    const ignorePatterns = [
+      /avatar/, /icon/, /logo/, /badge/, /emoji/,
+      /banner/, /thumbnail.*user/, /profile/,
+      /\.svg$/i, /favicon/
+    ];
+    if (ignorePatterns.some(p => p.test(url))) return false;
+    return true;
+  }
+
   updateBrowserStatus(title, url, extra = {}) {
     const waitingLogin = title.includes('登录');
+    const inClass = this.isClassroomPage(url, title);
     this.captureReady = !waitingLogin;
+    this.inClassroom = inClass;
     this.state.setStatus({
-      browserState: this.captureReady ? 'running' : 'waiting-login',
+      browserState: this.captureReady ? (inClass ? 'in-class' : 'running') : 'waiting-login',
       currentPageTitle: title,
       currentPageUrl: url,
+      inClassroom: inClass,
       ...extra
     });
   }

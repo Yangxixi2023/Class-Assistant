@@ -73,8 +73,8 @@ async function main() {
   });
 
   app.post('/api/switch-model', (req, res) => {
-    const { fast, deep, translate } = req.body;
-    modelService.setModels({ fast, deep, translate });
+    const { fast, deep, translate, chat } = req.body;
+    modelService.setModels({ fast, deep, translate, chat });
     const current = modelService.getCurrentModels();
     state.setStatus({ modelFast: current.fast, modelDeep: current.deep, modelTranslate: current.translate });
     res.json({ ok: true, ...current });
@@ -258,10 +258,13 @@ async function main() {
   app.get('/api/models', async (req, res) => {
     const { apiKey, baseUrl } = req.query;
     try {
-      const models = apiKey
-        ? await modelService.listModels(apiKey, baseUrl || '')
-        : await modelService.listAllModels();
-      res.json({ ok: true, models });
+      if (apiKey) {
+        const models = await modelService.listModels(apiKey, baseUrl || '');
+        res.json({ ok: true, models: models.map(m => ({ model: m, source: '' })) });
+      } else {
+        const items = await modelService.listAllModels();
+        res.json({ ok: true, models: items.map(i => ({ model: i.model, source: i.endpoint.label })) });
+      }
     } catch (error) {
       res.json({ ok: false, models: [], error: error.message });
     }
@@ -424,6 +427,17 @@ async function main() {
       const imageUrl = `data:${mime};base64,${fileBuffer.toString('base64')}`;
       const result = await modelService.analyzeImage({ imageUrl, mode: mode || 'fast' });
       res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/analyze-capture', async (req, res) => {
+    const { captureId, mode } = req.body;
+    if (!captureId) return res.status(400).json({ ok: false, error: '未指定 captureId' });
+    try {
+      await capturePipeline.analyzeCapture(captureId, mode || 'fast');
+      res.json({ ok: true });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }

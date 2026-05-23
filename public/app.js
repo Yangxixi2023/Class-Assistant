@@ -245,7 +245,7 @@
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok && d.models) {
-          state.availableModels = d.models;
+          state.availableModels = d.models; // [{model, source}]
           var dd = document.querySelector('.model-dropdown');
           if (dd) {
             var empty = dd.querySelector('.model-dropdown-empty');
@@ -255,12 +255,10 @@
               if (state.models) {
                 if (mode === 'translate') cur = state.models.translate || '';
                 else if (mode === 'deep') cur = state.models.deep || '';
+                else if (mode === 'chat') cur = state.chatModel || state.models.fast || '';
                 else cur = state.models.fast || '';
               }
-              empty.outerHTML = d.models.map(function(m) {
-                var active = m === cur ? ' active' : '';
-                return '<button class="model-dropdown-item' + active + '" data-select-model="' + esc(m) + '" data-model-mode="' + mode + '">' + esc(m) + '</button>';
-              }).join('');
+              empty.outerHTML = renderModelItems(d.models, cur, mode);
               bindDropdownItems(dd);
             }
           }
@@ -1126,6 +1124,20 @@
   }
 
   // ── Model dropdown ──
+  function renderModelItems(models, currentModel, dropdownMode) {
+    var lastSource = '';
+    return models.map(function(item) {
+      var m = typeof item === 'string' ? item : item.model;
+      var src = typeof item === 'string' ? '' : (item.source || '');
+      var active = m === currentModel ? ' active' : '';
+      var header = '';
+      if (src && src !== lastSource) {
+        lastSource = src;
+        header = '<div class="model-dropdown-source">' + esc(src) + '</div>';
+      }
+      return header + '<button class="model-dropdown-item' + active + '" data-select-model="' + esc(m) + '" data-model-mode="' + dropdownMode + '">' + esc(m) + '</button>';
+    }).join('');
+  }
   function bindDropdownItems(container) {
     container.querySelectorAll('[data-select-model]').forEach(function(item) {
       item.addEventListener('click', function(e) {
@@ -1134,11 +1146,22 @@
         var mMode = item.dataset.modelMode || state.analyzeMode;
 
         if (mMode === 'chat') {
-          // Chat mode: set local override and switch fast model on server
+          // Chat mode: switch on server (auto-resolves correct API client)
           state.chatModel = selectedModel;
+          fetch('/api/switch-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat: selectedModel })
+          }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.ok) {
+              state.models = { fast: d.fast, deep: d.deep, translate: d.translate };
+            }
+          }).catch(function() {});
           var label = $('#chat-model-label');
-          if (label) label.textContent = selectedModel.length > 15 ? selectedModel.slice(0, 15) + '…' : selectedModel;
-          label.parentElement.title = selectedModel;
+          if (label) {
+            label.textContent = selectedModel.length > 15 ? selectedModel.slice(0, 15) + '…' : selectedModel;
+            label.parentElement.title = selectedModel;
+          }
           showToast('对话模型: ' + selectedModel);
           var dd = document.querySelector('.model-dropdown');
           if (dd) dd.remove();
@@ -1199,10 +1222,7 @@
 
     var content = '<div class="model-dropdown-header">切换模型</div>';
     if (state.availableModels.length) {
-      content += state.availableModels.map(function(m) {
-        var active = m === currentModel ? ' active' : '';
-        return '<button class="model-dropdown-item' + active + '" data-select-model="' + esc(m) + '" data-model-mode="' + dropdownMode + '">' + esc(m) + '</button>';
-      }).join('');
+      content += renderModelItems(state.availableModels, currentModel, dropdownMode);
     } else {
       content += '<div class="model-dropdown-empty">加载模型列表...</div>';
       fetch('/api/models').then(function(r) { return r.json(); }).then(function(d) {
@@ -1212,10 +1232,7 @@
           if (dd) {
             var empty = dd.querySelector('.model-dropdown-empty');
             if (empty) {
-              empty.outerHTML = d.models.map(function(m) {
-                var active = m === currentModel ? ' active' : '';
-                return '<button class="model-dropdown-item' + active + '" data-select-model="' + esc(m) + '" data-model-mode="' + dropdownMode + '">' + esc(m) + '</button>';
-              }).join('');
+              empty.outerHTML = renderModelItems(d.models, currentModel, dropdownMode);
               bindDropdownItems(dd);
             }
           }
@@ -1297,8 +1314,11 @@
       wrap.className = 'model-suggestions';
       wrap.innerHTML = '<small style="margin-top:6px;display:block;color:var(--text-3)">可用模型：</small>' +
         '<div class="model-chips">' +
-        models.map(function(m) {
-          return '<button type="button" class="model-chip" data-model="' + esc(m) + '">' + esc(m) + '</button>';
+        models.map(function(item) {
+          var m = typeof item === 'string' ? item : item.model;
+          var src = typeof item === 'string' ? '' : (item.source || '');
+          var title = src ? (m + ' (' + src + ')') : m;
+          return '<button type="button" class="model-chip" data-model="' + esc(m) + '" title="' + esc(title) + '">' + esc(m) + '</button>';
         }).join('') +
         '</div>';
       input.parentElement.appendChild(wrap);
@@ -2129,10 +2149,10 @@
       }
 
       if (doAction === 'retry') {
-        fetch('/api/analyze-current', {
+        fetch('/api/analyze-capture', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: state.analyzeMode })
+          body: JSON.stringify({ captureId: cid, mode: state.analyzeMode })
         });
         return;
       }
@@ -2652,12 +2672,16 @@
 
       var menu = document.createElement('div');
       menu.className = 'thumb-ctx-menu';
-      menu.style.left = e.clientX + 'px';
-      menu.style.top = e.clientY + 'px';
       menu.innerHTML =
         '<button data-ctx-action="fullscreen">全屏查看</button>' +
         '<button data-ctx-action="delete" class="danger">删除</button>';
       document.body.appendChild(menu);
+      // Position: prefer above click point (queue is at bottom)
+      var menuH = menu.offsetHeight || 60;
+      var topPos = e.clientY - menuH - 4;
+      if (topPos < 4) topPos = e.clientY + 4;
+      menu.style.left = Math.min(e.clientX, window.innerWidth - 120) + 'px';
+      menu.style.top = topPos + 'px';
 
       menu.addEventListener('click', function(ev) {
         var action = ev.target.dataset.ctxAction;

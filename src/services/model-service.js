@@ -216,31 +216,50 @@ export class ModelService {
     this.overrideFast = '';
     this.overrideDeep = '';
     this.overrideTranslate = '';
+    // model→client mapping: when user picks a model from a specific endpoint
+    this.overrideClientFast = null;
+    this.overrideClientDeep = null;
+    this.overrideClientTranslate = null;
+    this.overrideClientChat = null;
+    this.overrideChat = '';
+    // endpoint registry: populated by listAllModels
+    this._endpoints = [];
+    this._modelEndpointMap = new Map();
   }
 
-  setModels({ fast, deep, translate }) {
-    if (fast) this.overrideFast = fast;
-    if (deep) this.overrideDeep = deep;
-    if (translate) this.overrideTranslate = translate;
+  setModels({ fast, deep, translate, chat }) {
+    if (fast) { this.overrideFast = fast; this.overrideClientFast = this._clientForModel(fast); }
+    if (deep) { this.overrideDeep = deep; this.overrideClientDeep = this._clientForModel(deep); }
+    if (translate) { this.overrideTranslate = translate; this.overrideClientTranslate = this._clientForModel(translate); }
+    if (chat) { this.overrideChat = chat; this.overrideClientChat = this._clientForModel(chat); }
+  }
+
+  _clientForModel(modelId) {
+    const ep = this._modelEndpointMap.get(modelId);
+    if (!ep) return null;
+    return new OpenAI({ apiKey: ep.key, baseURL: ep.url || undefined });
   }
 
   getModel(mode = 'fast') {
     if (mode === 'deep') return this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel;
     if (mode === 'translate') return this.overrideTranslate || this.config.translateModel || this.config.openaiModelFast || this.config.openaiModel;
+    if (mode === 'chat') return this.overrideChat || this.overrideFast || this.config.openaiModelFast || this.config.openaiModel;
     return this.overrideFast || this.config.openaiModelFast || this.config.openaiModel;
   }
 
   getClient(mode = 'fast') {
-    if (mode === 'deep') return this.client;
-    if (mode === 'translate') return this.clientTranslate || this.client;
-    return this.clientFast || this.client;
+    if (mode === 'deep') return this.overrideClientDeep || this.client;
+    if (mode === 'translate') return this.overrideClientTranslate || this.clientTranslate || this.client;
+    if (mode === 'chat') return this.overrideClientChat || this.overrideClientFast || this.clientFast || this.client;
+    return this.overrideClientFast || this.clientFast || this.client;
   }
 
   getCurrentModels() {
     return {
       fast: this.overrideFast || this.config.openaiModelFast || this.config.openaiModel,
       deep: this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel,
-      translate: this.overrideTranslate || this.config.translateModel || this.config.openaiModelFast || this.config.openaiModel
+      translate: this.overrideTranslate || this.config.translateModel || this.config.openaiModelFast || this.config.openaiModel,
+      chat: this.overrideChat || ''
     };
   }
 
@@ -327,7 +346,8 @@ export class ModelService {
   }
 
   chatStream({ messages: chatHistory, imageUrl, contextMarkdown, background, model }) {
-    const client = this.getClient('fast');
+    const useModel = model || this.getModel('chat');
+    const client = model ? (this._clientForModel(model) || this.getClient('chat')) : this.getClient('chat');
     if (!client) throw new Error('未配置 API Key');
 
     let sys = CHAT_SYSTEM_PROMPT;
@@ -335,7 +355,7 @@ export class ModelService {
     if (background) sys += `\n\n补充信息：\n${background}`;
 
     return client.chat.completions.create({
-      model: model || this.getModel('fast'),
+      model: useModel,
       temperature: 0.3,
       stream: true,
       messages: [{ role: 'system', content: sys }, ...chatHistory]
@@ -447,33 +467,46 @@ export class ModelService {
   }
 
   async listAllModels() {
-    const seen = new Set();
-    const results = [];
-
     const endpoints = [
-      { key: this.config.openaiApiKey, url: this.config.openaiBaseUrl },
+      { key: this.config.openaiApiKey, url: this.config.openaiBaseUrl, label: this._urlLabel(this.config.openaiBaseUrl) },
     ];
     if (this.config.openaiApiKeyFast && this.config.openaiApiKeyFast !== this.config.openaiApiKey) {
-      endpoints.push({ key: this.config.openaiApiKeyFast, url: this.config.openaiBaseUrl });
+      endpoints.push({ key: this.config.openaiApiKeyFast, url: this.config.openaiBaseUrl, label: this._urlLabel(this.config.openaiBaseUrl) });
     }
     if (this.config.translateApiKey && (this.config.translateApiKey !== this.config.openaiApiKey || this.config.translateBaseUrl !== this.config.openaiBaseUrl)) {
-      endpoints.push({ key: this.config.translateApiKey, url: this.config.translateBaseUrl });
+      endpoints.push({ key: this.config.translateApiKey, url: this.config.translateBaseUrl, label: this._urlLabel(this.config.translateBaseUrl) });
     }
+
+    this._endpoints = endpoints;
+    const seen = new Set();
+    const results = [];
 
     const fetches = endpoints.map(async (ep) => {
       if (!ep.key) return [];
       try {
-        return await this.listModels(ep.key, ep.url);
+        const models = await this.listModels(ep.key, ep.url);
+        return models.map(m => ({ model: m, endpoint: ep }));
       } catch { return []; }
     });
 
     const allLists = await Promise.all(fetches);
     for (const list of allLists) {
-      for (const m of list) {
-        if (!seen.has(m)) { seen.add(m); results.push(m); }
+      for (const item of list) {
+        if (!seen.has(item.model)) {
+          seen.add(item.model);
+          results.push(item);
+          this._modelEndpointMap.set(item.model, item.endpoint);
+        }
       }
     }
-    results.sort();
+    results.sort((a, b) => a.model.localeCompare(b.model));
     return results;
+  }
+
+  _urlLabel(url) {
+    if (!url) return 'default';
+    try {
+      return new URL(url).hostname.replace(/^api\./, '').replace(/\.(com|vip|cn|io)$/, '');
+    } catch { return url; }
   }
 }

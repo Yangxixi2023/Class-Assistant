@@ -2592,8 +2592,14 @@
       newtabBtn._bound = true;
       newtabBtn.addEventListener('click', function() {
         window.electronAPI.getYuketangUrl().then(function(url) {
-          if (url) window.electronAPI.openExternal(url);
-          else window.electronAPI.openExternal('https://www.yuketang.cn/web/?index');
+          var openUrl = url || 'https://www.yuketang.cn/web/?index';
+          window.electronAPI.openExternal(openUrl);
+          // 关闭内嵌视图，切换回课件
+          state._ykViewVisible = false;
+          window.electronAPI.stopYuketang();
+          if (slidesBtn) { slidesBtn.classList.add('active'); }
+          if (liveBtn) { liveBtn.classList.remove('active'); }
+          showToast('雨课堂已在独立窗口打开');
         });
       });
     }

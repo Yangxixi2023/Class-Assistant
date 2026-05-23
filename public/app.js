@@ -343,7 +343,6 @@
       return '<div class="thumb' + activeClass + '" data-id="' + c.id + '">' +
         thumbContent +
         '<span class="thumb-index">' + (i + 1) + '</span>' +
-        '<span class="thumb-del" data-del-capture="' + c.id + '" title="删除">&times;</span>' +
         statusIndicator +
         '</div>';
     }).join('');
@@ -1575,19 +1574,6 @@
       return;
     }
 
-    // Thumbnail delete
-    var delCapture = t.closest('[data-del-capture]');
-    if (delCapture) {
-      var delId = delCapture.dataset.delCapture;
-      fetch('/api/delete-capture', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captureId: delId })
-      });
-      if (state.focusedId === delId) state.focusedId = null;
-      return;
-    }
-
     // Context chip delete
     var delChip = t.closest('[data-del-chip]');
     if (delChip) {
@@ -2618,6 +2604,50 @@
       els.modalTitle.textContent = cap.title || cap.fileName || '课件图片';
       els.modalBody.innerHTML = '<img src="' + cap.webPath + '" style="max-width:100%;max-height:80vh;border-radius:8px" />';
       els.fullscreenModal.style.display = 'flex';
+    });
+
+    // Right-click thumbnail for context menu (fullscreen / delete)
+    els.slideNav.addEventListener('contextmenu', function(e) {
+      var thumb = e.target.closest('.thumb');
+      if (!thumb) return;
+      e.preventDefault();
+      var capId = thumb.dataset.id;
+      var cap = state.snapshot.captures.find(function(c) { return c.id === capId; });
+      if (!cap) return;
+
+      var existing = document.querySelector('.thumb-ctx-menu');
+      if (existing) existing.remove();
+
+      var menu = document.createElement('div');
+      menu.className = 'thumb-ctx-menu';
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+      menu.innerHTML =
+        '<button data-ctx-action="fullscreen">全屏查看</button>' +
+        '<button data-ctx-action="delete" class="danger">删除</button>';
+      document.body.appendChild(menu);
+
+      menu.addEventListener('click', function(ev) {
+        var action = ev.target.dataset.ctxAction;
+        if (action === 'fullscreen') {
+          els.modalTitle.textContent = cap.title || cap.fileName || '课件图片';
+          els.modalBody.innerHTML = '<img src="' + cap.webPath + '" style="max-width:100%;max-height:80vh;border-radius:8px" />';
+          els.fullscreenModal.style.display = 'flex';
+        } else if (action === 'delete') {
+          fetch('/api/delete-capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ captureId: capId })
+          });
+          if (state.focusedId === capId) state.focusedId = null;
+        }
+        menu.remove();
+      });
+
+      document.addEventListener('click', function closeCtx() {
+        menu.remove();
+        document.removeEventListener('click', closeCtx);
+      }, { once: true });
     });
 
     fetch('/api/state')

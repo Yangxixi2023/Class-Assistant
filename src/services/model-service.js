@@ -467,13 +467,14 @@ export class ModelService {
   }
 
   async listAllModels() {
-    const endpoints = [
-      { key: this.config.openaiApiKey, url: this.config.openaiBaseUrl, label: this._urlLabel(this.config.openaiBaseUrl) },
-    ];
-    if (this.config.openaiApiKeyFast && this.config.openaiApiKeyFast !== this.config.openaiApiKey) {
-      endpoints.push({ key: this.config.openaiApiKeyFast, url: this.config.openaiBaseUrl, label: this._urlLabel(this.config.openaiBaseUrl) });
+    const endpoints = [];
+    if (this.config.openaiApiKey) {
+      endpoints.push({ key: this.config.openaiApiKey, url: this.config.openaiBaseUrl, label: this._urlLabel(this.config.openaiBaseUrl) });
     }
-    if (this.config.translateApiKey && (this.config.translateApiKey !== this.config.openaiApiKey || this.config.translateBaseUrl !== this.config.openaiBaseUrl)) {
+    if (this.config.openaiApiKeyFast && this.config.openaiApiKeyFast !== this.config.openaiApiKey) {
+      endpoints.push({ key: this.config.openaiApiKeyFast, url: this.config.openaiBaseUrl, label: this._urlLabel(this.config.openaiBaseUrl) + ' (fast)' });
+    }
+    if (this.config.translateApiKey && this.config.translateBaseUrl && this.config.translateBaseUrl !== this.config.openaiBaseUrl) {
       endpoints.push({ key: this.config.translateApiKey, url: this.config.translateBaseUrl, label: this._urlLabel(this.config.translateBaseUrl) });
     }
 

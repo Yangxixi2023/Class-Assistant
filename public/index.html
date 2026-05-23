@@ -144,24 +144,29 @@
       .online-bar-btn.danger:hover { background: var(--red); color: #fff; }
       .online-bar-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
 
-      /* Yuketang view toggle overlay */
+      /* Yuketang view floating toolbar — sits ABOVE BrowserView via position:fixed + high z-index */
       .yk-view-toolbar {
         display: none;
-        position: absolute;
-        top: 8px; left: 50%; transform: translateX(-50%);
-        z-index: 50;
-        background: rgba(30,30,30,0.85);
-        backdrop-filter: blur(8px);
+        position: fixed;
+        top: 100px; left: 50%;
+        transform: translateX(-50%);
+        z-index: 99999;
+        background: rgba(30,30,30,0.92);
+        backdrop-filter: blur(10px);
         border-radius: var(--r-full);
-        padding: 4px 6px;
+        padding: 5px 8px;
         gap: 4px;
         align-items: center;
-        box-shadow: var(--shadow-md);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         transition: opacity 0.2s;
+        cursor: grab;
+        user-select: none;
+        -webkit-app-region: no-drag;
       }
+      .yk-view-toolbar.dragging { cursor: grabbing; }
       .yk-view-toolbar.visible { display: flex; }
       .yk-view-btn {
-        padding: 4px 10px;
+        padding: 5px 12px;
         font-size: 11px;
         font-weight: 600;
         border: none;
@@ -1265,12 +1270,6 @@
 
       <div class="workspace">
         <main class="slide-stage" style="position:relative">
-          <div class="yk-view-toolbar" id="yk-toolbar">
-            <button class="yk-view-btn active" id="yk-btn-live" title="显示雨课堂实时页面">雨课堂</button>
-            <button class="yk-view-btn" id="yk-btn-slides" title="查看捕获的课件">课件</button>
-            <button class="yk-view-btn" id="yk-btn-newtab" title="新标签页打开雨课堂">↗ 新窗口</button>
-            <button class="yk-view-btn danger" id="yk-btn-close" title="关闭雨课堂嵌入视图">✕</button>
-          </div>
           <div class="slide-display" id="slide-display">
             <div class="slide-placeholder">
               <img src="/assets/empty-state.png" alt="" style="width:140px;height:140px" />
@@ -1569,5 +1568,13 @@
       })();
     </script>
     <script src="/app.js"></script>
+
+    <!-- Floating toolbar for yuketang view — top-level so BrowserView can't cover it -->
+    <div class="yk-view-toolbar" id="yk-toolbar">
+      <button class="yk-view-btn active" id="yk-btn-live" title="显示雨课堂实时页面">雨课堂</button>
+      <button class="yk-view-btn" id="yk-btn-slides" title="查看捕获的课件">课件</button>
+      <button class="yk-view-btn" id="yk-btn-newtab" title="新标签页打开雨课堂">↗ 新窗口</button>
+      <button class="yk-view-btn danger" id="yk-btn-close" title="关闭雨课堂嵌入视图">✕</button>
+    </div>
   </body>
 </html>

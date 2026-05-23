@@ -2538,17 +2538,27 @@
   }
 
   // ── Sync BrowserView bounds to slide-stage ──
+  var YK_TOOLBAR_HEIGHT = 38;
+
   function syncViewBounds() {
     if (!isElectron || !state._ykViewVisible) return;
     var stage = document.querySelector('.slide-stage');
     if (!stage) return;
     var rect = stage.getBoundingClientRect();
+    // Leave gap at top for the floating toolbar
     window.electronAPI.setViewBounds({
       x: Math.round(rect.left),
-      y: Math.round(rect.top),
+      y: Math.round(rect.top) + YK_TOOLBAR_HEIGHT,
       width: Math.round(rect.width),
-      height: Math.round(rect.height)
+      height: Math.max(0, Math.round(rect.height) - YK_TOOLBAR_HEIGHT)
     });
+    // Position the toolbar in the gap area (not covered by BrowserView)
+    var toolbar = $('#yk-toolbar');
+    if (toolbar && toolbar.classList.contains('visible') && !toolbar._userDragged) {
+      toolbar.style.top = Math.round(rect.top + 4) + 'px';
+      toolbar.style.left = Math.round(rect.left + rect.width / 2) + 'px';
+      toolbar.style.transform = 'translateX(-50%)';
+    }
   }
 
   function pauseYuketangView() {
@@ -2568,6 +2578,7 @@
     var slidesBtn = $('#yk-btn-slides');
     var newtabBtn = $('#yk-btn-newtab');
     var closeBtn = $('#yk-btn-close');
+    var toolbar = $('#yk-toolbar');
 
     if (liveBtn && !liveBtn._bound) {
       liveBtn._bound = true;
@@ -2605,9 +2616,42 @@
       closeBtn.addEventListener('click', function() {
         state._ykViewVisible = false;
         window.electronAPI.stopYuketang();
-        var toolbar = $('#yk-toolbar');
-        if (toolbar) toolbar.classList.remove('visible');
+        if (toolbar) { toolbar.classList.remove('visible'); toolbar._userDragged = false; }
         showToast('已关闭雨课堂视图');
+      });
+    }
+
+    // ── Drag support for toolbar ──
+    if (toolbar && !toolbar._dragBound) {
+      toolbar._dragBound = true;
+      var dragState = { dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 };
+
+      toolbar.addEventListener('mousedown', function(e) {
+        if (e.target.tagName === 'BUTTON') return;
+        dragState.dragging = true;
+        dragState.startX = e.clientX;
+        dragState.startY = e.clientY;
+        var rect = toolbar.getBoundingClientRect();
+        dragState.origX = rect.left;
+        dragState.origY = rect.top;
+        toolbar.classList.add('dragging');
+        toolbar.style.transform = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!dragState.dragging) return;
+        var dx = e.clientX - dragState.startX;
+        var dy = e.clientY - dragState.startY;
+        toolbar.style.left = (dragState.origX + dx) + 'px';
+        toolbar.style.top = (dragState.origY + dy) + 'px';
+        toolbar._userDragged = true;
+      });
+
+      document.addEventListener('mouseup', function() {
+        if (!dragState.dragging) return;
+        dragState.dragging = false;
+        toolbar.classList.remove('dragging');
       });
     }
 
@@ -2681,7 +2725,7 @@
           window.electronAPI.stopYuketang().then(function() {
             showToast('已停止监听');
             var toolbar = $('#yk-toolbar');
-            if (toolbar) toolbar.classList.remove('visible');
+            if (toolbar) { toolbar.classList.remove('visible'); toolbar._userDragged = false; }
           });
         } else {
           fetch('/api/stop-monitor', { method: 'POST' })

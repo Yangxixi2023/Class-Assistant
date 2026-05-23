@@ -32,6 +32,30 @@ const SYSTEM_PROMPT = [
   'E. 非课程(5)：所有字段置空'
 ].join('\n');
 
+const SYSTEM_PROMPT_DEEP = [
+  '你是课堂深度解析助手。收到课堂图片后分类并输出结构化 JSON。',
+  '分类：1 课件内容，2 选择题，3 填空题，4 主观题，5 非课程内容。',
+  '只返回 JSON 对象，禁止 Markdown 代码块。',
+  '',
+  '顶层字段：{"categoryId":1,"categoryName":"课件内容","confidence":0.9,"reason":"","title":"","renderedMarkdown":"","payload":{}}',
+  '',
+  '规则：',
+  '- 不要使用 emoji 或网络用语',
+  '- 语言正式、学术化，但内容要详尽深入',
+  '- 课件内容：深入剖析每个知识点，给出详细解释、背景知识、与其他知识点的关联，而非简单提炼',
+  '- renderedMarkdown 使用详细的 Markdown，用二级标题分节，每节内容要充实完整',
+  '- 数学公式必须使用 LaTeX 表示：行内公式用 $...$ 包裹，独立公式用 $$...$$ 包裹',
+  '- 准确识别并还原图片中的数学符号、公式、矩阵、方程组等',
+  '- 对于每个要点，给出详细的解释说明，包括原理、推导过程、应用场景',
+  '',
+  'payload 格式：',
+  'A. 课件(1)：{ summary(一句话总结), keyPoints(详细要点数组，每个要点包含充分的解释), tips(详细学习建议数组，包含具体方法和资源推荐) }',
+  'B. 选择题(2)：{ questionStem, options([{key,text,isAnswer}]), answers([]), explanation(详细逐步解题过程，包含每个选项的分析和排除理由), knowledgePoints(涉及的所有知识点，附带简要说明) }',
+  'C. 填空题(3)：{ questionStem, blanks([{index,answer}]), explanation(详细解题思路和推导过程), knowledgePoints(涉及的所有知识点，附带简要说明) }',
+  'D. 主观题(4)：{ questionStem, sampleAnswer(完整详细的参考答案), keyPoints(详细的得分要点数组), explanation(详细解题思路、方法论和常见错误提醒), knowledgePoints(涉及的所有知识点，附带简要说明) }',
+  'E. 非课程(5)：所有字段置空'
+].join('\n');
+
 const DEEP_THINK_PROMPT = [
   '你是学科专家。对以下课堂内容做深度分析。',
   '要求：正式学术语言，无 emoji，结构清晰。',
@@ -202,7 +226,7 @@ export class ModelService {
 
   getModel(mode = 'fast') {
     if (mode === 'deep') return this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel;
-    if (mode === 'translate') return this.overrideTranslate || this.config.translateModel || 'deepseek-v4-flash';
+    if (mode === 'translate') return this.overrideTranslate || this.config.translateModel || this.config.openaiModelFast || this.config.openaiModel;
     return this.overrideFast || this.config.openaiModelFast || this.config.openaiModel;
   }
 
@@ -216,7 +240,7 @@ export class ModelService {
     return {
       fast: this.overrideFast || this.config.openaiModelFast || this.config.openaiModel,
       deep: this.overrideDeep || this.config.openaiModelDeep || this.config.openaiModel,
-      translate: this.overrideTranslate || this.config.translateModel || 'deepseek-v4-flash'
+      translate: this.overrideTranslate || this.config.translateModel || this.config.openaiModelFast || this.config.openaiModel
     };
   }
 
@@ -225,17 +249,20 @@ export class ModelService {
     if (!client) throw new Error('未配置 API Key');
     if (!imageUrl) throw new Error('无效图片');
 
+    const isDeep = mode === 'deep';
+    const systemPrompt = isDeep ? SYSTEM_PROMPT_DEEP : SYSTEM_PROMPT;
+
     let completion;
     try {
       completion = await client.chat.completions.create({
         model: this.getModel(mode),
         temperature: 0.1,
-        max_tokens: 4096,
+        max_tokens: isDeep ? 8192 : 4096,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT + '\n\n严格只返回 JSON 对象，不要任何其他文字。' },
+          { role: 'system', content: systemPrompt + '\n\n严格只返回 JSON 对象，不要任何其他文字。' },
           { role: 'user', content: [
             { type: 'image_url', image_url: { url: imageUrl } },
-            { type: 'text', text: '解析这张课堂图片，返回 JSON。' }
+            { type: 'text', text: isDeep ? '深入解析这张课堂图片，给出详尽分析，返回 JSON。' : '解析这张课堂图片，返回 JSON。' }
           ]}
         ]
       });

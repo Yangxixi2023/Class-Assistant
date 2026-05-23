@@ -99,8 +99,20 @@ async function main() {
 
     try {
       state.updateCapture(captureId, { deepThinkStatus: 'thinking' });
+
+      let imageUrl = capture.url;
+      if (capture.fileName) {
+        try {
+          const filePath = path.join(config.captureDir, capture.fileName);
+          const fileBuffer = await fs.readFile(filePath);
+          const ext = path.extname(capture.fileName).toLowerCase();
+          const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+          imageUrl = `data:${mime};base64,${fileBuffer.toString('base64')}`;
+        } catch (_) { }
+      }
+
       const result = await modelService.deepThink({
-        imageUrl: capture.url,
+        imageUrl,
         contextMarkdown: capture.renderedMarkdown
       });
       const { marked } = await import('marked');
@@ -404,15 +416,29 @@ async function main() {
     const { fileName, mode } = req.body;
     if (!fileName) return res.status(400).json({ ok: false, error: '未指定文件' });
 
-    const webPath = `/captures/${fileName}`;
-    const imageUrl = `http://127.0.0.1:${config.port}${webPath}`;
-
+    const filePath = path.join(config.captureDir, fileName);
     try {
+      const fileBuffer = await fs.readFile(filePath);
+      const ext = path.extname(fileName).toLowerCase();
+      const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      const imageUrl = `data:${mime};base64,${fileBuffer.toString('base64')}`;
       const result = await modelService.analyzeImage({ imageUrl, mode: mode || 'fast' });
       res.json({ ok: true, ...result });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }
+  });
+
+  app.post('/api/delete-capture', async (req, res) => {
+    const { captureId } = req.body;
+    if (!captureId) return res.status(400).json({ ok: false, error: '未指定 captureId' });
+    const capture = state.findCapture(captureId);
+    if (!capture) return res.status(404).json({ ok: false, error: '未找到' });
+    if (capture.fileName) {
+      await fs.unlink(path.join(config.captureDir, capture.fileName)).catch(() => {});
+    }
+    state.removeCapture(captureId);
+    res.json({ ok: true });
   });
 
   // ── Electron BrowserView: receive captured images ──

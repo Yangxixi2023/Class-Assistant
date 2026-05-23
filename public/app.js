@@ -56,6 +56,38 @@
     chatModel: '' // custom chat model override
   };
 
+  // ── Background context chips ──
+  var contextChips = []; // [{label, text}]
+
+  function addContextChip(label, text) {
+    if (!text) return;
+    contextChips.push({ label: label || '背景', text: text.trim() });
+    renderContextChips();
+  }
+
+  function removeContextChip(idx) {
+    contextChips.splice(idx, 1);
+    renderContextChips();
+  }
+
+  function renderContextChips() {
+    var container = $('#ctx-chips');
+    if (!container) return;
+    container.innerHTML = contextChips.map(function(c, i) {
+      return '<span class="ctx-chip" title="' + esc(c.text).slice(0, 200) + '">' +
+        '<span>' + esc(c.label) + '</span>' +
+        '<span class="ctx-chip-del" data-del-chip="' + i + '">&times;</span>' +
+        '</span>';
+    }).join('');
+  }
+
+  function getBackgroundText() {
+    var bg = $('#chat-background');
+    var parts = contextChips.map(function(c) { return c.text; });
+    if (bg && bg.value.trim()) parts.push(bg.value.trim());
+    return parts.join('\n\n');
+  }
+
   // ── Utilities ──
   function esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -311,6 +343,7 @@
       return '<div class="thumb' + activeClass + '" data-id="' + c.id + '">' +
         thumbContent +
         '<span class="thumb-index">' + (i + 1) + '</span>' +
+        '<span class="thumb-del" data-del-capture="' + c.id + '" title="删除">&times;</span>' +
         statusIndicator +
         '</div>';
     }).join('');
@@ -403,7 +436,9 @@
     }
 
     if (capture.deepThinkStatus === 'thinking') {
-      html += '<div class="analysis-progress" style="padding:16px"><div class="progress-ring" style="width:28px;height:28px;border-width:2px"></div><div class="progress-text" style="font-size:12px">深度思考中，请稍候...</div></div>';
+      html += '<div class="deep-think-loading"><div class="progress-ring"></div><span class="progress-text">正在深度思考，请稍候...</span></div>';
+    } else if (capture.deepThinkStatus === 'error') {
+      html += '<div class="card" style="margin-top:12px;border-color:var(--red-dim)"><span style="color:var(--red);font-size:12px">深度思考失败，请重试</span></div>';
     } else if (capture.deepThinkHtml) {
       html += '<div class="card"><h4>深度思考</h4><div class="prose">' + capture.deepThinkHtml + '</div></div>';
     }
@@ -628,7 +663,7 @@
     els.chatMessages.appendChild(replyDiv);
     els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
 
-    var bg = $('#chat-background') ? ($('#chat-background').value || '').trim() : '';
+    var bg = getBackgroundText();
     var accumulated = '';
 
     fetchStream('/api/chat-stream', {
@@ -1540,6 +1575,26 @@
       return;
     }
 
+    // Thumbnail delete
+    var delCapture = t.closest('[data-del-capture]');
+    if (delCapture) {
+      var delId = delCapture.dataset.delCapture;
+      fetch('/api/delete-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captureId: delId })
+      });
+      if (state.focusedId === delId) state.focusedId = null;
+      return;
+    }
+
+    // Context chip delete
+    var delChip = t.closest('[data-del-chip]');
+    if (delChip) {
+      removeContextChip(Number(delChip.dataset.delChip));
+      return;
+    }
+
     // Thumbnail click
     var thumb = t.closest('.thumb');
     if (thumb) {
@@ -1986,14 +2041,10 @@
       if (doAction === 'import-to-chat') {
         var cap = state.snapshot.captures.find(function(c) { return c.id === cid; });
         if (cap && cap.renderedMarkdown) {
-          var bg = $('#chat-background');
-          if (bg) {
-            bg.value = cap.renderedMarkdown.slice(0, 2000);
-            autoGrowTextarea(bg, 200);
-            var area = $('#ctx-area');
-            if (area) area.style.display = '';
-          }
-          showToast('解析内容已导入对话背景，可继续追问');
+          addContextChip(cap.title || '课件解析', cap.renderedMarkdown.slice(0, 2000));
+          var area = $('#ctx-area');
+          if (area) area.style.display = '';
+          showToast('课件已导入对话背景');
         } else {
           showToast('暂无解析内容可导入');
         }
@@ -2545,7 +2596,29 @@
     var chatBg = $('#chat-background');
     if (chatBg) {
       chatBg.addEventListener('input', function() { autoGrowTextarea(this, 200); });
+      chatBg.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          var val = this.value.trim();
+          if (val) {
+            addContextChip('自定义', val);
+            this.value = '';
+            this.style.height = 'auto';
+          }
+        }
+      });
     }
+
+    // Double-click thumbnail to fullscreen image
+    els.slideNav.addEventListener('dblclick', function(e) {
+      var thumb = e.target.closest('.thumb');
+      if (!thumb) return;
+      var cap = state.snapshot.captures.find(function(c) { return c.id === thumb.dataset.id; });
+      if (!cap) return;
+      els.modalTitle.textContent = cap.title || cap.fileName || '课件图片';
+      els.modalBody.innerHTML = '<img src="' + cap.webPath + '" style="max-width:100%;max-height:80vh;border-radius:8px" />';
+      els.fullscreenModal.style.display = 'flex';
+    });
 
     fetch('/api/state')
       .then(function(r) { return r.json(); })

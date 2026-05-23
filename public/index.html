@@ -356,6 +356,15 @@
         transition: all 0.15s var(--ease);
         position: relative;
       }
+      .thumb-del {
+        position: absolute; top: 1px; right: 1px;
+        width: 14px; height: 14px; border-radius: 50%;
+        background: rgba(0,0,0,0.6); color: #fff;
+        font-size: 9px; line-height: 14px; text-align: center;
+        display: none; cursor: pointer; z-index: 2;
+      }
+      .thumb:hover .thumb-del { display: block; }
+      .thumb-del:hover { background: var(--red); }
       .thumb:hover { opacity: 0.7; transform: translateY(-1px); }
       .thumb.active { border-color: var(--accent); opacity: 1; box-shadow: var(--shadow-sm); }
       .thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -636,6 +645,18 @@
       .progress-step { width: 28px; height: 3px; border-radius: 2px; background: var(--border); transition: background 0.3s; }
       .progress-step.done { background: var(--accent); }
       .progress-step.active { background: var(--accent); animation: pulse 1s infinite; }
+      .deep-think-loading {
+        display: flex; align-items: center; gap: 10px;
+        padding: 14px 16px; margin-top: 12px;
+        background: var(--bg-warm); border-radius: var(--r-sm);
+        border: 1px solid var(--border-light);
+      }
+      .deep-think-loading .progress-ring {
+        width: 20px; height: 20px; border-width: 2px; flex-shrink: 0;
+      }
+      .deep-think-loading .progress-text {
+        font-size: 12px; font-weight: 500;
+      }
 
       /* ═══ Chat ═══ */
       .chat-body-inner {
@@ -666,6 +687,21 @@
         overflow-y: auto;
       }
       #chat-background:focus { border-color: var(--accent); background: var(--surface); }
+      .ctx-chips {
+        display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;
+      }
+      .ctx-chip {
+        display: inline-flex; align-items: center; gap: 3px;
+        background: var(--accent-dim); color: var(--accent);
+        border-radius: 10px; padding: 2px 8px; font-size: 10px;
+        max-width: 200px; cursor: default;
+      }
+      .ctx-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ctx-chip-del {
+        cursor: pointer; font-size: 12px; line-height: 1; opacity: 0.6;
+        margin-left: 2px;
+      }
+      .ctx-chip-del:hover { opacity: 1; color: var(--red); }
 
       .chat-messages {
         flex: 1; display: flex; flex-direction: column;
@@ -1288,7 +1324,8 @@
               <div class="chat-context" id="chat-context">
                 <button class="ctx-toggle" id="btn-toggle-ctx">+ 背景信息</button>
                 <div class="ctx-area" id="ctx-area" style="display:none">
-                  <textarea id="chat-background" placeholder="补充课程背景、章节信息..." rows="2"></textarea>
+                  <div class="ctx-chips" id="ctx-chips"></div>
+                  <textarea id="chat-background" placeholder="输入背景信息后按 Enter 添加..." rows="1"></textarea>
                 </div>
               </div>
               <div class="chat-messages" id="chat-messages">

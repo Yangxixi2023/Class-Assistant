@@ -15,10 +15,12 @@
 ```
 1. 安装 Node.js 18+  →  https://nodejs.org/
 2. 下载本项目（Clone 或 Download ZIP）
-3. 双击 start.bat
-4. 首次自动安装依赖和浏览器（等 1-2 分钟）
+3. 双击「智慧课堂.exe」
+4. 点击「启动」按钮
 5. 在弹出的浏览器中登录雨课堂 → 完成！
 ```
+
+> 首次运行会自动安装依赖（需要网络），之后秒开。
 
 ### 方式二：命令行启动
 
@@ -143,9 +145,9 @@ OPENAI_MODEL_DEEP=claude-sonnet-4-6          # 深度模式
 ## 项目结构
 
 ```
-├── start.bat                  # Windows 一键启动脚本
+├── 智慧课堂.exe                # Windows GUI 启动器（双击即用）
+├── launcher.cs                # 启动器源码（C# WinForms）
 ├── .env.default               # 内置默认配置（可直接使用）
-├── .env.example               # 配置模板（自定义时参考）
 ├── src/
 │   ├── server.js              # Express + SSE + API
 │   ├── config.js              # 配置加载（.env → .env.default 回退）

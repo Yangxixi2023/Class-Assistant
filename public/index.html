@@ -334,7 +334,17 @@
         border-top: 1px solid var(--border-light);
         flex-shrink: 0; min-height: 58px;
         align-items: center;
+        position: relative;
       }
+      .slide-nav.collapsed { display: none; }
+      .slide-nav-toggle {
+        position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+        z-index: 5; background: var(--surface); border: 1px solid var(--border-light);
+        border-bottom: none; border-radius: 6px 6px 0 0;
+        padding: 1px 12px; font-size: 10px; color: var(--text-3);
+        cursor: pointer; line-height: 1.4;
+      }
+      .slide-nav-toggle:hover { color: var(--text-1); background: var(--bg-warm); }
 
       .thumb {
         flex-shrink: 0;
@@ -1245,6 +1255,7 @@
             </div>
           </div>
           <div class="slide-nav" id="slide-nav"></div>
+          <button class="slide-nav-toggle" id="btn-toggle-nav" title="显示/隐藏队列">▼ 队列</button>
         </main>
 
         <div class="resize-handle-h" id="workspace-resize-handle"></div>

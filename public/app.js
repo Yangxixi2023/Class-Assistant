@@ -1642,6 +1642,17 @@
       return;
     }
 
+    // Toggle slide nav (queue) visibility
+    if (t.closest('#btn-toggle-nav')) {
+      var nav = $('#slide-nav');
+      var btn = $('#btn-toggle-nav');
+      if (nav) {
+        nav.classList.toggle('collapsed');
+        if (btn) btn.textContent = nav.classList.contains('collapsed') ? '▲ 队列' : '▼ 队列';
+      }
+      return;
+    }
+
     // Layout swap
     if (t.closest('#btn-layout-swap')) {
       toggleLayout();

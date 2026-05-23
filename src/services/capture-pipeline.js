@@ -250,7 +250,17 @@ export class CapturePipeline {
       });
 
       try {
-        const result = await this.modelService.analyzeImage({ imageUrl: task.imageUrl, mode: task.mode || this.analyzeMode });
+        // Read file and convert to base64 data URL for remote API access
+        let imageUrl = task.imageUrl;
+        if (task.filePath) {
+          try {
+            const fileBuffer = await fs.readFile(task.filePath);
+            const ext = path.extname(task.filePath).toLowerCase();
+            const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+            imageUrl = `data:${mime};base64,${fileBuffer.toString('base64')}`;
+          } catch (_) { /* fall back to URL */ }
+        }
+        const result = await this.modelService.analyzeImage({ imageUrl, mode: task.mode || this.analyzeMode });
 
         if (result.categoryId === 5) {
           await fs.rm(task.filePath, { force: true }).catch(() => {});

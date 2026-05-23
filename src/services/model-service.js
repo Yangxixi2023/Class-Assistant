@@ -223,7 +223,7 @@ export class ModelService {
   async analyzeImage({ imageUrl, mode = 'fast' }) {
     const client = this.getClient(mode);
     if (!client) throw new Error('未配置 API Key');
-    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) throw new Error('无效图片 URL');
+    if (!imageUrl) throw new Error('无效图片');
 
     let completion;
     try {
@@ -267,7 +267,7 @@ export class ModelService {
 
     const userContent = [];
     if (contextMarkdown) userContent.push({ type: 'text', text: `基础解析：\n${contextMarkdown}\n\n请深入分析。` });
-    if (imageUrl && /^https?:\/\//i.test(imageUrl)) userContent.push({ type: 'image_url', image_url: { url: imageUrl } });
+    if (imageUrl && (/^https?:\/\//i.test(imageUrl) || /^data:/i.test(imageUrl))) userContent.push({ type: 'image_url', image_url: { url: imageUrl } });
     if (!userContent.length) userContent.push({ type: 'text', text: '请深入分析课堂内容。' });
 
     const completion = await this.client.chat.completions.create({

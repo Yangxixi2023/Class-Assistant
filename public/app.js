@@ -2675,12 +2675,12 @@
       menu.innerHTML =
         '<button data-ctx-action="fullscreen">全屏查看</button>' +
         '<button data-ctx-action="delete" class="danger">删除</button>';
+      menu.style.left = Math.min(e.clientX, window.innerWidth - 120) + 'px';
+      menu.style.top = '-9999px';
       document.body.appendChild(menu);
-      // Position: prefer above click point (queue is at bottom)
       var menuH = menu.offsetHeight || 60;
       var topPos = e.clientY - menuH - 4;
       if (topPos < 4) topPos = e.clientY + 4;
-      menu.style.left = Math.min(e.clientX, window.innerWidth - 120) + 'px';
       menu.style.top = topPos + 'px';
 
       menu.addEventListener('click', function(ev) {

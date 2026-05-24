@@ -210,17 +210,13 @@ export class ModelService {
     this.clientFast = config.openaiApiKeyFast && config.openaiApiKeyFast !== config.openaiApiKey
       ? new OpenAI({ apiKey: config.openaiApiKeyFast, baseURL: config.openaiBaseUrl || undefined })
       : this.client;
-    this.clientTranslate = config.translateApiKey
-      ? new OpenAI({ apiKey: config.translateApiKey, baseURL: config.translateBaseUrl || config.openaiBaseUrl || undefined })
+    // Translate: only create separate client if BOTH key and url are configured and different from main
+    this.clientTranslate = (config.translateApiKey && config.translateBaseUrl && config.translateBaseUrl !== config.openaiBaseUrl)
+      ? new OpenAI({ apiKey: config.translateApiKey, baseURL: config.translateBaseUrl })
       : this.client;
     this.overrideFast = '';
     this.overrideDeep = '';
     this.overrideTranslate = '';
-    // model→client mapping: when user picks a model from a specific endpoint
-    this.overrideClientFast = null;
-    this.overrideClientDeep = null;
-    this.overrideClientTranslate = null;
-    this.overrideClientChat = null;
     this.overrideChat = '';
     // endpoint registry: populated by listAllModels
     this._endpoints = [];
@@ -228,10 +224,10 @@ export class ModelService {
   }
 
   setModels({ fast, deep, translate, chat }) {
-    if (fast) { this.overrideFast = fast; this.overrideClientFast = this._clientForModel(fast); }
-    if (deep) { this.overrideDeep = deep; this.overrideClientDeep = this._clientForModel(deep); }
-    if (translate) { this.overrideTranslate = translate; this.overrideClientTranslate = this._clientForModel(translate); }
-    if (chat) { this.overrideChat = chat; this.overrideClientChat = this._clientForModel(chat); }
+    if (fast) this.overrideFast = fast;
+    if (deep) this.overrideDeep = deep;
+    if (translate) this.overrideTranslate = translate;
+    if (chat) this.overrideChat = chat;
   }
 
   _clientForModel(modelId) {
@@ -248,10 +244,15 @@ export class ModelService {
   }
 
   getClient(mode = 'fast') {
-    if (mode === 'deep') return this.overrideClientDeep || this.client;
-    if (mode === 'translate') return this.overrideClientTranslate || this.clientTranslate || this.client;
-    if (mode === 'chat') return this.overrideClientChat || this.overrideClientFast || this.clientFast || this.client;
-    return this.overrideClientFast || this.clientFast || this.client;
+    // Always try to find the right client for the actual model being used
+    const model = this.getModel(mode);
+    const mapped = this._clientForModel(model);
+    if (mapped) return mapped;
+    // Fallback to configured clients
+    if (mode === 'deep') return this.client;
+    if (mode === 'translate') return this.clientTranslate;
+    if (mode === 'chat') return this.clientFast || this.client;
+    return this.clientFast || this.client;
   }
 
   getCurrentModels() {
@@ -309,14 +310,15 @@ export class ModelService {
   }
 
   async deepThink({ imageUrl, contextMarkdown }) {
-    if (!this.client) throw new Error('未配置 API Key');
+    const client = this.getClient('deep');
+    if (!client) throw new Error('未配置 API Key');
 
     const userContent = [];
     if (contextMarkdown) userContent.push({ type: 'text', text: `基础解析：\n${contextMarkdown}\n\n请深入分析。` });
     if (imageUrl && (/^https?:\/\//i.test(imageUrl) || /^data:/i.test(imageUrl))) userContent.push({ type: 'image_url', image_url: { url: imageUrl } });
     if (!userContent.length) userContent.push({ type: 'text', text: '请深入分析课堂内容。' });
 
-    const completion = await this.client.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model: this.getModel('deep'),
       temperature: 0.3,
       messages: [
@@ -329,7 +331,7 @@ export class ModelService {
   }
 
   async chat({ messages: chatHistory, imageUrl, contextMarkdown, background }) {
-    const client = this.getClient('fast');
+    const client = this.getClient('chat');
     if (!client) throw new Error('未配置 API Key');
 
     let sys = CHAT_SYSTEM_PROMPT;
@@ -337,7 +339,7 @@ export class ModelService {
     if (background) sys += `\n\n补充信息：\n${background}`;
 
     const completion = await client.chat.completions.create({
-      model: this.getModel('fast'),
+      model: this.getModel('chat'),
       temperature: 0.3,
       messages: [{ role: 'system', content: sys }, ...chatHistory]
     });
@@ -346,8 +348,8 @@ export class ModelService {
   }
 
   chatStream({ messages: chatHistory, imageUrl, contextMarkdown, background, model }) {
-    const useModel = model || this.getModel('chat');
-    const client = model ? (this._clientForModel(model) || this.getClient('chat')) : this.getClient('chat');
+    if (model) this.overrideChat = model;
+    const client = this.getClient('chat');
     if (!client) throw new Error('未配置 API Key');
 
     let sys = CHAT_SYSTEM_PROMPT;
@@ -355,7 +357,7 @@ export class ModelService {
     if (background) sys += `\n\n补充信息：\n${background}`;
 
     return client.chat.completions.create({
-      model: useModel,
+      model: this.getModel('chat'),
       temperature: 0.3,
       stream: true,
       messages: [{ role: 'system', content: sys }, ...chatHistory]

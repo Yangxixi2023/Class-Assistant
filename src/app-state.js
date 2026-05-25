@@ -4,7 +4,7 @@ export class AppState {
   constructor(config) {
     this.config = config;
     this.subscribers = new Set();
-    this.autoAnalyze = true;
+    this.autoAnalyze = false;
     this.analyzeMode = 'fast';
     this.state = {
       status: {
@@ -17,7 +17,7 @@ export class AppState {
         queueSize: 0,
         processedCount: 0,
         failedCount: 0,
-        autoAnalyze: true,
+        autoAnalyze: false,
         analyzeMode: 'fast'
       },
       captures: [],

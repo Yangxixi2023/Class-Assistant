@@ -13,7 +13,9 @@ let serverProcess = null;
 let scanTimer = null;
 let captureReady = false;
 let inClassroom = false;
+let networkInterceptActive = false;
 const PORT = 3000;
+const interceptedUrls = new Set();
 
 const isPacked = app.isPackaged;
 const appDir = path.resolve(__dirname, '..');
@@ -184,14 +186,79 @@ async function startYuketangView(customUrl) {
 
   await yuketangView.webContents.loadURL(defaultUrl);
 
-  // Start scanning for images
+  // Start network interception via CDP for image capture
+  startNetworkInterception();
+
+  // Start scanning for images (fallback for images CDP might miss)
   scanTimer = setInterval(() => scanVisibleImages(), 2500);
 
   postToServer('/api/browser-status', { browserState: 'waiting-login', currentPageTitle: '', currentPageUrl: defaultUrl });
 }
 
+function startNetworkInterception() {
+  if (!yuketangView || networkInterceptActive) return;
+  try {
+    const dbg = yuketangView.webContents.debugger;
+    dbg.attach('1.3');
+    dbg.sendCommand('Network.enable');
+    dbg.on('message', (_event, method, params) => {
+      if (method === 'Network.responseReceived') {
+        handleCDPResponse(params);
+      }
+    });
+    networkInterceptActive = true;
+  } catch (e) {
+    console.error('[cdp] attach failed:', e.message);
+  }
+}
+
+function stopNetworkInterception() {
+  if (!yuketangView || !networkInterceptActive) return;
+  try {
+    const dbg = yuketangView.webContents.debugger;
+    if (dbg.isAttached()) dbg.detach();
+  } catch (_) {}
+  networkInterceptActive = false;
+  interceptedUrls.clear();
+}
+
+function handleCDPResponse(params) {
+  if (!captureReady) return;
+  const { response, requestId } = params;
+  if (!response || !response.url) return;
+
+  const contentType = response.headers['content-type'] || response.headers['Content-Type'] || '';
+  if (!contentType.startsWith('image/')) return;
+
+  const url = response.url;
+  if (!url.startsWith('http')) return;
+  if (!isLikelySlideImage(url)) return;
+  if (interceptedUrls.has(url)) return;
+  interceptedUrls.add(url);
+
+  // Limit set size to prevent memory leak
+  if (interceptedUrls.size > 500) {
+    const first = interceptedUrls.values().next().value;
+    interceptedUrls.delete(first);
+  }
+
+  // Get response body via CDP
+  const dbg = yuketangView && yuketangView.webContents && yuketangView.webContents.debugger;
+  if (!dbg || !dbg.isAttached()) return;
+
+  dbg.sendCommand('Network.getResponseBody', { requestId }).then((result) => {
+    if (!result || !result.body) return;
+    const buffer = result.base64Encoded
+      ? Buffer.from(result.body, 'base64')
+      : Buffer.from(result.body);
+    if (buffer.length < 5000) return;
+    submitCaptureToServer(url, buffer, contentType, false);
+  }).catch(() => {});
+}
+
 function stopYuketangView() {
   if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+  stopNetworkInterception();
   if (yuketangView) {
     try {
       if (mainWindow) mainWindow.removeBrowserView(yuketangView);
@@ -217,15 +284,32 @@ async function scanVisibleImages() {
             rect.top < window.innerHeight && rect.left < window.innerWidth &&
             style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity || '1') > 0;
         }
-        return Array.from(document.images)
-          .map(function(img) { return { url: img.currentSrc || img.src, area: img.clientWidth * img.clientHeight }; })
-          .filter(function(img) { return img.url && img.url.startsWith('http') && img.area > 10000; })
-          .filter(function(img) {
-            var el = Array.from(document.images).find(function(i) { return (i.currentSrc || i.src) === img.url; });
-            return el ? isVisible(el) : false;
-          })
-          .sort(function(a, b) { return b.area - a.area; })
-          .slice(0, 8);
+        var results = [];
+        // Collect <img> tags
+        Array.from(document.images).forEach(function(img) {
+          var url = img.currentSrc || img.src;
+          if (url && url.startsWith('http') && img.clientWidth * img.clientHeight > 10000 && isVisible(img)) {
+            results.push({ url: url, area: img.clientWidth * img.clientHeight });
+          }
+        });
+        // Collect background-image URLs from large visible elements
+        document.querySelectorAll('[style*="background"], .slide, .ppt, .courseware, .presentation, canvas').forEach(function(el) {
+          var style = window.getComputedStyle(el);
+          var bg = style.backgroundImage;
+          if (bg && bg !== 'none') {
+            var match = bg.match(/url\\(["']?(https?:\\/\\/[^"')]+)["']?\\)/);
+            if (match && isVisible(el)) {
+              results.push({ url: match[1], area: el.clientWidth * el.clientHeight });
+            }
+          }
+        });
+        // Deduplicate
+        var seen = {};
+        return results.filter(function(img) {
+          if (seen[img.url]) return false;
+          seen[img.url] = true;
+          return true;
+        }).sort(function(a, b) { return b.area - a.area; }).slice(0, 8);
       })()
     `);
 
@@ -239,6 +323,25 @@ async function scanVisibleImages() {
 }
 
 function fetchAndSubmitImage(imageUrl, forceAnalyze) {
+  // Use the BrowserView's session to fetch with cookies (authenticated)
+  if (yuketangView && !yuketangView.webContents.isDestroyed()) {
+    const ses = yuketangView.webContents.session;
+    const req = ses.fetch ? ses : null;
+    if (req && typeof ses.fetch === 'function') {
+      ses.fetch(imageUrl).then(async (response) => {
+        if (!response.ok) return;
+        const contentType = response.headers.get('content-type') || 'image/png';
+        if (!contentType.startsWith('image/')) return;
+        const arrayBuf = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuf);
+        if (buffer.length < 5000) return;
+        submitCaptureToServer(imageUrl, buffer, contentType, forceAnalyze);
+      }).catch(() => {});
+      return;
+    }
+  }
+
+  // Fallback: fetch without cookies
   const mod = imageUrl.startsWith('https') ? https : http;
   const req = mod.get(imageUrl, { timeout: 15000 }, (res) => {
     if (res.statusCode !== 200) return;

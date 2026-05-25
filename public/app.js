@@ -323,20 +323,68 @@
     if (ext === 'pdf') {
       els.slideDisplay.innerHTML = '<div class="slide-placeholder"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-size:13px;font-weight:500">' + esc(capture.fileName) + '</span></div>';
     } else {
-      var ocrText = '';
-      if (capture.ocrText) {
-        ocrText = capture.ocrText;
-      } else if (capture.renderedMarkdown) {
-        ocrText = capture.renderedMarkdown.replace(/[#*_~`>\-|]/g, '').replace(/\n{3,}/g, '\n\n').trim();
-      }
-      var ocrLayer = ocrText
-        ? '<div class="slide-ocr-layer">' + esc(ocrText) + '</div>'
-        : '';
       els.slideDisplay.innerHTML =
         '<div class="slide-img-wrap">' +
           '<img src="' + capture.webPath + '" alt="" />' +
-          ocrLayer +
+          '<div class="slide-ocr-layer"></div>' +
         '</div>';
+      loadOcrLayer(capture.id);
+    }
+  }
+
+  var ocrDataCache = {};
+  function loadOcrLayer(captureId) {
+    if (ocrDataCache[captureId]) {
+      renderOcrWords(captureId, ocrDataCache[captureId]);
+      return;
+    }
+    fetch('/api/ocr/' + captureId)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok || !d.words || !d.words.length) return;
+        ocrDataCache[captureId] = d;
+        renderOcrWords(captureId, d);
+      })
+      .catch(function() {});
+  }
+
+  function renderOcrWords(captureId, ocrData) {
+    var focused = state.snapshot && state.snapshot.captures.find(function(c) { return c.id === state.focusedId; });
+    if (!focused || focused.id !== captureId) return;
+    var layer = els.slideDisplay.querySelector('.slide-ocr-layer');
+    if (!layer) return;
+    var img = els.slideDisplay.querySelector('img');
+    if (!img) return;
+
+    var doRender = function() {
+      var displayW = img.clientWidth;
+      var displayH = img.clientHeight;
+      if (!displayW || !displayH) return;
+      var scaleX = displayW / ocrData.imageWidth;
+      var scaleY = displayH / ocrData.imageHeight;
+      layer.innerHTML = '';
+      layer.style.width = displayW + 'px';
+      layer.style.height = displayH + 'px';
+      for (var i = 0; i < ocrData.words.length; i++) {
+        var w = ocrData.words[i];
+        var span = document.createElement('span');
+        span.textContent = w.text;
+        span.style.position = 'absolute';
+        span.style.left = (w.x * scaleX) + 'px';
+        span.style.top = (w.y * scaleY) + 'px';
+        span.style.fontSize = (w.h * scaleY) + 'px';
+        span.style.width = (w.w * scaleX) + 'px';
+        span.style.height = (w.h * scaleY) + 'px';
+        span.style.lineHeight = '1';
+        span.style.display = 'inline-block';
+        layer.appendChild(span);
+      }
+    };
+
+    if (img.complete && img.naturalWidth) {
+      doRender();
+    } else {
+      img.addEventListener('load', doRender, { once: true });
     }
   }
 

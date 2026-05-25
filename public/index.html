@@ -320,18 +320,20 @@
         box-shadow: var(--shadow-md);
       }
       .slide-ocr-layer {
-        position: absolute; inset: 0;
+        position: absolute; left: 0; top: 0;
         color: transparent;
-        font-size: 14px; line-height: 1.6;
-        padding: 16px;
-        white-space: pre-wrap; word-break: break-word;
         overflow: hidden;
         user-select: text;
         cursor: text;
         z-index: 2;
       }
-      .slide-ocr-layer::selection { background: rgba(59,130,246,0.3); color: transparent; }
-      .slide-ocr-layer *::selection { background: rgba(59,130,246,0.3); color: transparent; }
+      .slide-ocr-layer span {
+        color: transparent;
+        white-space: pre;
+        position: absolute;
+      }
+      .slide-ocr-layer span::selection { background: rgba(59,130,246,0.3); }
+      .slide-ocr-layer::selection { background: rgba(59,130,246,0.3); }
 
       /* Upload zone */
       .upload-zone {

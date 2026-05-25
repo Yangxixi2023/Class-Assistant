@@ -11,6 +11,7 @@ import { config } from './config.js';
 import { CapturePipeline } from './services/capture-pipeline.js';
 import { ModelService } from './services/model-service.js';
 import { MonitorService } from './services/monitor-service.js';
+import { ocrImage } from './services/ocr-service.js';
 
 async function ensureDirectories() {
   await fs.mkdir(config.captureDir, { recursive: true });
@@ -436,6 +437,27 @@ async function main() {
     try {
       await capturePipeline.analyzeCapture(captureId, mode || 'fast');
       res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  const ocrCache = new Map();
+
+  app.get('/api/ocr/:id', async (req, res) => {
+    const capture = state.findCapture(req.params.id);
+    if (!capture) return res.status(404).json({ ok: false, error: '未找到' });
+
+    if (ocrCache.has(capture.id)) {
+      return res.json({ ok: true, ...ocrCache.get(capture.id) });
+    }
+
+    try {
+      const filePath = path.join(config.captureDir, capture.fileName);
+      const buffer = await fs.readFile(filePath);
+      const result = await ocrImage(buffer);
+      ocrCache.set(capture.id, result);
+      res.json({ ok: true, ...result });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }

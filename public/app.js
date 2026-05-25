@@ -2647,6 +2647,18 @@
       });
     }
 
+    // Click thumbnail to select and show its analysis
+    els.slideNav.addEventListener('click', function(e) {
+      var thumb = e.target.closest('.thumb');
+      if (!thumb) return;
+      var id = thumb.dataset.id;
+      if (id && id !== state.focusedId) {
+        state.focusedId = id;
+        state.followLatest = false;
+        if (state.snapshot) render(state.snapshot);
+      }
+    });
+
     // Double-click thumbnail to fullscreen image
     els.slideNav.addEventListener('dblclick', function(e) {
       var thumb = e.target.closest('.thumb');

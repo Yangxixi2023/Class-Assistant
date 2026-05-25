@@ -121,23 +121,30 @@ function extractJson(text) {
   if (start === -1 || end === -1 || end < start) {
     throw new RetryableAnalysisError('模型返回中没有找到合法 JSON。');
   }
-  const jsonStr = candidate.slice(start, end + 1);
+  let jsonStr = candidate.slice(start, end + 1);
   try {
     return JSON.parse(jsonStr);
   } catch (e1) {
-    // Try fixing common issues: unescaped newlines in string values
+    // Fix trailing commas before } or ]
+    let fixed = jsonStr.replace(/,\s*([}\]])/g, '$1');
+    // Fix double closing braces like ",}}" → "}}"
+    fixed = fixed.replace(/,\s*}/g, '}');
     try {
-      const fixed = jsonStr.replace(/(?<=:\s*")([\s\S]*?)(?="(?:\s*[,}\]]))/g, (match) => {
-        return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
-      });
       return JSON.parse(fixed);
     } catch (e2) {
-      // Last resort: try eval-style parse with Function
+      // Try fixing unescaped newlines in string values
       try {
-        return (new Function('return ' + jsonStr))();
+        const fixed2 = fixed.replace(/(?<=:\s*")([\s\S]*?)(?="(?:\s*[,}\]]))/g, (match) => {
+          return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+        });
+        return JSON.parse(fixed2);
       } catch (e3) {
-        console.error('[extractJson] Failed to parse. First 500 chars:', jsonStr.slice(0, 500));
-        throw new RetryableAnalysisError('模型返回的 JSON 无法解析。');
+        try {
+          return (new Function('return ' + fixed))();
+        } catch (e4) {
+          console.error('[extractJson] Failed to parse. First 500 chars:', jsonStr.slice(0, 500));
+          throw new RetryableAnalysisError('模型返回的 JSON 无法解析。');
+        }
       }
     }
   }
@@ -210,7 +217,6 @@ export class ModelService {
     this.clientFast = config.openaiApiKeyFast && config.openaiApiKeyFast !== config.openaiApiKey
       ? new OpenAI({ apiKey: config.openaiApiKeyFast, baseURL: config.openaiBaseUrl || undefined })
       : this.client;
-    // Translate: only create separate client if BOTH key and url are configured and different from main
     this.clientTranslate = (config.translateApiKey && config.translateBaseUrl && config.translateBaseUrl !== config.openaiBaseUrl)
       ? new OpenAI({ apiKey: config.translateApiKey, baseURL: config.translateBaseUrl })
       : this.client;
@@ -218,7 +224,6 @@ export class ModelService {
     this.overrideDeep = '';
     this.overrideTranslate = '';
     this.overrideChat = '';
-    // endpoint registry: populated by listAllModels
     this._endpoints = [];
     this._modelEndpointMap = new Map();
   }
@@ -264,31 +269,104 @@ export class ModelService {
     };
   }
 
+  _getEndpoint(mode) {
+    const model = this.getModel(mode);
+    const ep = this._modelEndpointMap.get(model);
+    if (ep) return { key: ep.key, url: ep.url };
+    if (mode === 'translate' && this.config.translateApiKey && this.config.translateBaseUrl) {
+      return { key: this.config.translateApiKey, url: this.config.translateBaseUrl };
+    }
+    return { key: this.config.openaiApiKey, url: this.config.openaiBaseUrl };
+  }
+
+  async _collectStream(streamOrPromise) {
+    const stream = await streamOrPromise;
+    let acc = '';
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) acc += delta;
+    }
+    return acc;
+  }
+
+  async _rawStreamingVision({ model, messages, temperature = 0.1, max_tokens = 4096, mode = 'fast' }) {
+    const ep = this._getEndpoint(mode);
+    if (!ep.key) throw new Error('未配置 API Key');
+
+    const baseUrl = (ep.url || 'https://api.openai.com/v1').replace(/\/$/, '');
+
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ep.key}`
+      },
+      body: JSON.stringify({ model, stream: true, temperature, max_tokens, messages })
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '');
+      const errMsg = errBody.slice(0, 300);
+      throw new Error(`${resp.status} ${errMsg}`);
+    }
+
+    let acc = '';
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) acc += delta;
+        } catch {}
+      }
+    }
+
+    return acc;
+  }
+
+  _buildVisionMessages(systemPrompt, imageUrl, userText) {
+    return [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: [
+        { type: 'image_url', image_url: imageUrl },
+        { type: 'text', text: userText }
+      ]}
+    ];
+  }
+
   async analyzeImage({ imageUrl, mode = 'fast' }) {
-    const client = this.getClient(mode);
-    if (!client) throw new Error('未配置 API Key');
     if (!imageUrl) throw new Error('无效图片');
 
     const isDeep = mode === 'deep';
-    const systemPrompt = isDeep ? SYSTEM_PROMPT_DEEP : SYSTEM_PROMPT;
+    const systemPrompt = (isDeep ? SYSTEM_PROMPT_DEEP : SYSTEM_PROMPT) + '\n\n严格只返回 JSON 对象，不要任何其他文字。';
+    const userText = isDeep ? '深入解析这张课堂图片，给出详尽分析，返回 JSON。' : '解析这张课堂图片，返回 JSON。';
 
-    let completion;
+    let text;
     try {
-      completion = await client.chat.completions.create({
+      text = await this._rawStreamingVision({
         model: this.getModel(mode),
+        messages: this._buildVisionMessages(systemPrompt, imageUrl, userText),
         temperature: 0.1,
         max_tokens: isDeep ? 8192 : 4096,
-        messages: [
-          { role: 'system', content: systemPrompt + '\n\n严格只返回 JSON 对象，不要任何其他文字。' },
-          { role: 'user', content: [
-            { type: 'image_url', image_url: { url: imageUrl } },
-            { type: 'text', text: isDeep ? '深入解析这张课堂图片，给出详尽分析，返回 JSON。' : '解析这张课堂图片，返回 JSON。' }
-          ]}
-        ]
+        mode
       });
     } catch (error) { throw wrapModelError(error); }
 
-    const text = completion.choices?.[0]?.message?.content;
     if (!text) throw new RetryableAnalysisError('模型没有返回内容');
 
     const parsed = extractJson(text);
@@ -310,24 +388,25 @@ export class ModelService {
   }
 
   async deepThink({ imageUrl, contextMarkdown }) {
-    const client = this.getClient('deep');
-    if (!client) throw new Error('未配置 API Key');
-
     const userContent = [];
     if (contextMarkdown) userContent.push({ type: 'text', text: `基础解析：\n${contextMarkdown}\n\n请深入分析。` });
-    if (imageUrl && (/^https?:\/\//i.test(imageUrl) || /^data:/i.test(imageUrl))) userContent.push({ type: 'image_url', image_url: { url: imageUrl } });
+    if (imageUrl && (/^https?:\/\//i.test(imageUrl) || /^data:/i.test(imageUrl))) {
+      userContent.push({ type: 'image_url', image_url: imageUrl });
+    }
     if (!userContent.length) userContent.push({ type: 'text', text: '请深入分析课堂内容。' });
 
-    const completion = await client.chat.completions.create({
+    const text = await this._rawStreamingVision({
       model: this.getModel('deep'),
-      temperature: 0.3,
       messages: [
         { role: 'system', content: DEEP_THINK_PROMPT },
         { role: 'user', content: userContent }
-      ]
+      ],
+      temperature: 0.3,
+      max_tokens: 8192,
+      mode: 'deep'
     });
 
-    return completion.choices?.[0]?.message?.content || '无法生成分析。';
+    return text || '无法生成分析。';
   }
 
   async chat({ messages: chatHistory, imageUrl, contextMarkdown, background }) {
@@ -338,13 +417,12 @@ export class ModelService {
     if (contextMarkdown) sys += `\n\n课件摘要：\n${contextMarkdown}`;
     if (background) sys += `\n\n补充信息：\n${background}`;
 
-    const completion = await client.chat.completions.create({
+    return this._collectStream(client.chat.completions.create({
       model: this.getModel('chat'),
       temperature: 0.3,
+      stream: true,
       messages: [{ role: 'system', content: sys }, ...chatHistory]
-    });
-
-    return completion.choices?.[0]?.message?.content || '无法回答。';
+    })) || '无法回答。';
   }
 
   chatStream({ messages: chatHistory, imageUrl, contextMarkdown, background, model }) {
@@ -371,29 +449,28 @@ export class ModelService {
     const langHint = sourceLang ? `源语言：${sourceLang}，` : '';
     const systemPrompt = this._translateSystemPrompt(langHint, targetLang);
 
-    const completion = await client.chat.completions.create({
+    const raw = await this._collectStream(client.chat.completions.create({
       model: this.getModel('translate'),
       temperature: 0.1,
       max_tokens: 2048,
+      stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: text }
       ]
-    });
+    }));
 
-    const raw = (completion.choices?.[0]?.message?.content || '').trim();
+    const trimmed = (raw || '').trim();
 
-    // Try to parse structured JSON; fall back to plain-text wrapper
     try {
-      const cleaned = raw.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
+      const cleaned = trimmed.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
       const parsed = JSON.parse(cleaned);
       return JSON.stringify(parsed);
     } catch {
-      // Model didn't return valid JSON — wrap plain text so the caller still gets consistent format
       return JSON.stringify({
         type: 'sentence',
         original: text,
-        translation: raw,
+        translation: trimmed,
         vocabulary: []
       });
     }

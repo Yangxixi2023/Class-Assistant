@@ -129,9 +129,17 @@ function updateBrowserStatus(title, url) {
 
 function isClassroomPage(url, title) {
   if (!url) return false;
-  const classPatterns = [/\/lesson\//, /\/classroom\//, /\/presentation\//, /\/pro\/lms\/.*\/studycontent/, /\/v2\/web\/index/, /problemset/, /quiz/, /exercise/];
+  const classPatterns = [
+    /\/lesson\//, /\/classroom\//, /\/presentation\//,
+    /\/pro\/lms\/.*\/studycontent/, /\/v2\/web\/index/,
+    /\/v2\/web\//, /changjiang\.yuketang/,
+    /problemset/, /quiz/, /exercise/,
+    /\/studentCards\//, /\/slideshow\//
+  ];
   const titlePatterns = [/课堂/, /课件/, /直播/, /互动/, /答题/, /签到/];
-  return classPatterns.some(p => p.test(url)) || titlePatterns.some(p => p.test(title || ''));
+  // If navigated away from homepage, likely in classroom
+  const notHomepage = url.includes('yuketang') && !url.endsWith('/web/?index') && !url.endsWith('/web/');
+  return classPatterns.some(p => p.test(url)) || titlePatterns.some(p => p.test(title || '')) || notHomepage;
 }
 
 function isLikelySlideImage(url) {
@@ -242,7 +250,7 @@ function stopNetworkInterception() {
 }
 
 function onResponseReceived(params) {
-  if (!captureReady) return;
+  if (!captureReady || !inClassroom) return;
   const { response, requestId } = params;
   if (!response || !response.url) return;
 
@@ -305,7 +313,7 @@ function stopYuketangView() {
 }
 
 async function scanVisibleImages() {
-  if (!yuketangView || !captureReady) return;
+  if (!yuketangView || !captureReady || !inClassroom) return;
 
   try {
     const visibleImages = await yuketangView.webContents.executeJavaScript(`

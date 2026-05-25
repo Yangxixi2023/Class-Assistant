@@ -334,17 +334,16 @@ export class MonitorService {
 
   isLikelySlideImage(url) {
     if (!url) return false;
-    const slidePatterns = [
-      /\/slide[_\/]/, /\/ppt[_\/]/, /\/image[_\/].*\d+/,
-      /\/courseware\//, /\/resource[_\/]/,
-      /oss.*\.yuketang\.cn/, /thunder.*\.yuketang\.cn/
-    ];
     const ignorePatterns = [
       /avatar/, /icon/, /logo/, /badge/, /emoji/,
       /banner/, /thumbnail.*user/, /profile/,
-      /\.svg$/i, /favicon/
+      /\.svg$/i, /favicon/, /\.gif$/i,
+      /button/, /arrow/, /spinner/, /loading/, /placeholder/
     ];
     if (ignorePatterns.some(p => p.test(url))) return false;
+    if (/yuketang\.cn/i.test(url)) {
+      return /\/slide\//i.test(url);
+    }
     return true;
   }
 

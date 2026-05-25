@@ -153,6 +153,12 @@ function isLikelySlideImage(url) {
     /1x1/, /pixel/, /spacer/, /blank/
   ];
   if (ignorePatterns.some(p => p.test(url))) return false;
+
+  // YuKetang-specific: only accept /slide/ images, skip static assets and misc
+  if (/yuketang\.cn/i.test(url)) {
+    return /\/slide\//i.test(url);
+  }
+
   return true;
 }
 

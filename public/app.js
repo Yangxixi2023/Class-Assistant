@@ -397,7 +397,7 @@
         '<div class="analysis-progress">' +
           '<div class="progress-ring"></div>' +
           '<div class="progress-text">正在分析课件内容</div>' +
-          '<div class="progress-sub">AI 模型识别中，通常需要 3-8 秒</div>' +
+          '<div class="progress-sub">AI 模型识别中，通常需要 10-15 秒</div>' +
           '<div class="progress-steps">' + steps + '</div>' +
         '</div>';
       return;
@@ -1698,7 +1698,7 @@
         '<div class="analysis-progress">' +
           '<div class="progress-ring"></div>' +
           '<div class="progress-text">正在解析内容</div>' +
-          '<div class="progress-sub">AI 模型识别中，通常需要 3-8 秒</div>' +
+          '<div class="progress-sub">AI 模型识别中，通常需要 10-15 秒</div>' +
           '<div class="progress-steps"><span class="progress-step active"></span><span class="progress-step"></span><span class="progress-step"></span></div>' +
         '</div>';
 

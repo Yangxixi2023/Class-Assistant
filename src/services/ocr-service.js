@@ -2,17 +2,29 @@ import Tesseract from 'tesseract.js';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
 let worker = null;
 const CACHE_DIR = path.join(os.tmpdir(), 'tesseract-cache');
 
+function findLangPath() {
+  const localFile = path.join(PROJECT_ROOT, 'chi_sim.traineddata');
+  if (fs.existsSync(localFile)) return PROJECT_ROOT;
+  return 'https://tessdata.projectnaptha.com/4.0.0';
+}
+
 async function getWorker() {
   if (worker) return worker;
   fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const langPath = findLangPath();
+  const useGzip = langPath.startsWith('http');
   worker = await Tesseract.createWorker('chi_sim+eng', 1, {
-    langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+    langPath,
     cachePath: CACHE_DIR,
-    gzip: true
+    gzip: useGzip
   });
   return worker;
 }

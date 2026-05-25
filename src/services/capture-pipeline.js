@@ -76,6 +76,12 @@ export class CapturePipeline {
         return;
       }
 
+      // Skip images that are too narrow/tall (likely UI elements, not slides)
+      const aspectRatio = width / height;
+      if (aspectRatio > 6 || aspectRatio < 0.3) {
+        return;
+      }
+
       const hash = crypto.createHash('sha1').update(buffer).digest('hex');
 
       if (hash === this.lastSubmittedHash) {

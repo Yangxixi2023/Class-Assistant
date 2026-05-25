@@ -135,7 +135,14 @@ function isClassroomPage(url, title) {
 
 function isLikelySlideImage(url) {
   if (!url) return false;
-  const ignorePatterns = [/avatar/, /icon/, /logo/, /badge/, /emoji/, /banner/, /thumbnail.*user/, /profile/, /\.svg$/i, /favicon/];
+  const ignorePatterns = [
+    /avatar/, /icon/, /logo/, /badge/, /emoji/, /banner/,
+    /thumbnail.*user/, /profile/, /\.svg$/i, /favicon/,
+    /\.gif$/i, /qrcode/, /barcode/, /wechat/, /weixin/,
+    /button/, /arrow/, /spinner/, /loading/, /placeholder/,
+    /ad[_\-]/, /advert/, /tracker/, /analytics/,
+    /1x1/, /pixel/, /spacer/, /blank/
+  ];
   if (ignorePatterns.some(p => p.test(url))) return false;
   return true;
 }
@@ -229,6 +236,7 @@ function handleCDPResponse(params) {
 
   const contentType = response.headers['content-type'] || response.headers['Content-Type'] || '';
   if (!contentType.startsWith('image/')) return;
+  if (contentType.includes('gif') || contentType.includes('svg')) return;
 
   const url = response.url;
   if (!url.startsWith('http')) return;

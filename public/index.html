@@ -308,6 +308,31 @@
       .slide-placeholder img { box-shadow: none !important; border-radius: var(--r); opacity: 0.4; }
       .slide-placeholder span { font-size: 12px; color: var(--text-3); font-weight: 500; }
 
+      .slide-img-wrap {
+        position: relative;
+        display: flex; align-items: center; justify-content: center;
+        max-width: 100%; max-height: 100%;
+      }
+      .slide-img-wrap img {
+        max-width: 100%; max-height: 100%;
+        object-fit: contain;
+        border-radius: var(--r-sm);
+        box-shadow: var(--shadow-md);
+      }
+      .slide-ocr-layer {
+        position: absolute; inset: 0;
+        color: transparent;
+        font-size: 14px; line-height: 1.6;
+        padding: 16px;
+        white-space: pre-wrap; word-break: break-word;
+        overflow: hidden;
+        user-select: text;
+        cursor: text;
+        z-index: 2;
+      }
+      .slide-ocr-layer::selection { background: rgba(59,130,246,0.3); color: transparent; }
+      .slide-ocr-layer *::selection { background: rgba(59,130,246,0.3); color: transparent; }
+
       /* Upload zone */
       .upload-zone {
         display: flex; flex-direction: column;

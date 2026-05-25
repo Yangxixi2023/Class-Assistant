@@ -13,11 +13,12 @@ const SYSTEM_PROMPT = [
   '分类：1 课件内容，2 选择题，3 填空题，4 主观题，5 非课程内容。',
   '只返回 JSON 对象，禁止 Markdown 代码块。',
   '',
-  '顶层字段：{"categoryId":1,"categoryName":"课件内容","confidence":0.9,"reason":"","title":"","renderedMarkdown":"","payload":{}}',
+  '顶层字段：{"categoryId":1,"categoryName":"课件内容","confidence":0.9,"reason":"","title":"","ocrText":"","renderedMarkdown":"","payload":{}}',
   '',
   '规则：',
   '- 不要使用 emoji 或网络用语',
   '- 语言正式、简洁、学术化',
+  '- ocrText：原样提取图片中所有可见文字（保留原始语言、换行和顺序，不翻译不总结）',
   '- 课件内容：提炼要点，给出理解辅助而非复述原文',
   '- renderedMarkdown 使用简洁的 Markdown，用二级标题分节',
   '- 数学公式必须使用 LaTeX 表示：行内公式用 $...$ 包裹，独立公式用 $$...$$ 包裹',
@@ -36,11 +37,12 @@ const SYSTEM_PROMPT_DEEP = [
   '分类：1 课件内容，2 选择题，3 填空题，4 主观题，5 非课程内容。',
   '只返回 JSON 对象，禁止 Markdown 代码块。',
   '',
-  '顶层字段：{"categoryId":1,"categoryName":"课件内容","confidence":0.9,"reason":"","title":"","renderedMarkdown":"","payload":{}}',
+  '顶层字段：{"categoryId":1,"categoryName":"课件内容","confidence":0.9,"reason":"","title":"","ocrText":"","renderedMarkdown":"","payload":{}}',
   '',
   '规则：',
   '- 不要使用 emoji 或网络用语',
   '- 语言正式、学术化，但内容要详尽深入',
+  '- ocrText：原样提取图片中所有可见文字（保留原始语言、换行和顺序，不翻译不总结）',
   '- 课件内容：深入剖析每个知识点，给出详细解释、背景知识、与其他知识点的关联，而非简单提炼',
   '- renderedMarkdown 使用详细的 Markdown，用二级标题分节，每节内容要充实完整',
   '- 数学公式必须使用 LaTeX 表示：行内公式用 $...$ 包裹，独立公式用 $$...$$ 包裹',
@@ -342,6 +344,7 @@ export class ModelService {
     const isIgnored = categoryId === 5;
     const payload = normalizePayload(categoryId, parsed.payload);
     const renderedMarkdown = isIgnored ? '' : asString(parsed.renderedMarkdown) || '';
+    const ocrText = isIgnored ? '' : asString(parsed.ocrText) || '';
 
     return {
       categoryId,
@@ -350,6 +353,7 @@ export class ModelService {
       reason: isIgnored ? '' : asString(parsed.reason),
       title: isIgnored ? '' : asString(parsed.title) || '分析结果',
       payload,
+      ocrText,
       renderedMarkdown,
       renderedHtml: ''
     };

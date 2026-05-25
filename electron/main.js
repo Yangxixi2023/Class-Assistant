@@ -16,6 +16,7 @@ let inClassroom = false;
 let networkInterceptActive = false;
 const PORT = 3000;
 const interceptedUrls = new Set();
+const pendingRequests = new Map();
 
 const isPacked = app.isPackaged;
 const appDir = path.resolve(__dirname, '..');
@@ -218,7 +219,9 @@ function startNetworkInterception() {
     dbg.sendCommand('Network.enable');
     dbg.on('message', (_event, method, params) => {
       if (method === 'Network.responseReceived') {
-        handleCDPResponse(params);
+        onResponseReceived(params);
+      } else if (method === 'Network.loadingFinished') {
+        onLoadingFinished(params);
       }
     });
     networkInterceptActive = true;
@@ -235,9 +238,10 @@ function stopNetworkInterception() {
   } catch (_) {}
   networkInterceptActive = false;
   interceptedUrls.clear();
+  pendingRequests.clear();
 }
 
-function handleCDPResponse(params) {
+function onResponseReceived(params) {
   if (!captureReady) return;
   const { response, requestId } = params;
   if (!response || !response.url) return;
@@ -250,6 +254,19 @@ function handleCDPResponse(params) {
   if (!url.startsWith('http')) return;
   if (!isLikelySlideImage(url)) return;
   if (interceptedUrls.has(url)) return;
+
+  // Store info for when loading finishes
+  pendingRequests.set(requestId, { url, contentType });
+}
+
+function onLoadingFinished(params) {
+  const { requestId } = params;
+  const info = pendingRequests.get(requestId);
+  if (!info) return;
+  pendingRequests.delete(requestId);
+
+  const { url, contentType } = info;
+  if (interceptedUrls.has(url)) return;
   interceptedUrls.add(url);
 
   // Limit set size to prevent memory leak
@@ -258,7 +275,7 @@ function handleCDPResponse(params) {
     interceptedUrls.delete(first);
   }
 
-  // Get response body via CDP
+  // Now body is fully downloaded — safe to read
   const dbg = yuketangView && yuketangView.webContents && yuketangView.webContents.debugger;
   if (!dbg || !dbg.isAttached()) return;
 

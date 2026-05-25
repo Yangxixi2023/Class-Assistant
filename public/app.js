@@ -2690,12 +2690,16 @@
           els.modalBody.innerHTML = '<img src="' + cap.webPath + '" style="max-width:100%;max-height:80vh;border-radius:8px" />';
           els.fullscreenModal.style.display = 'flex';
         } else if (action === 'delete') {
+          if (state.focusedId === capId) state.focusedId = null;
           fetch('/api/delete-capture', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ captureId: capId })
-          });
-          if (state.focusedId === capId) state.focusedId = null;
+          }).then(function() {
+            return fetch('/api/state');
+          }).then(function(r) { return r.json(); }).then(function(snap) {
+            render(snap);
+          }).catch(function() {});
         }
         menu.remove();
       });

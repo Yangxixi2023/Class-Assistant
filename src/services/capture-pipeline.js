@@ -42,7 +42,7 @@ export class CapturePipeline {
     this.processing = false;
     this.seenHashes = new Map();
     this.pendingUrls = new Set();
-    this.autoAnalyze = true;
+    this.autoAnalyze = false;
     this.analyzeMode = 'fast';
     this.lastSubmittedHash = null;
   }

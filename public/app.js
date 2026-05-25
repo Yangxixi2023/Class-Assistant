@@ -1629,6 +1629,8 @@
     var thumb = t.closest('.thumb');
     if (thumb) {
       state.focusedId = thumb.dataset.id;
+      state._analyzeInProgress = false;
+      state.followLatest = false;
       render(state.snapshot);
       return;
     }
@@ -1711,6 +1713,12 @@
         } else {
           offlineAnalyzePdfPage(state.pdfCurrentPage);
         }
+      } else if (state.focusedId) {
+        fetch('/api/analyze-capture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ captureId: state.focusedId, mode: state.analyzeMode })
+        });
       } else {
         if (isElectron && state.appMode === 'online') {
           window.electronAPI.manualScan().then(function(r) {

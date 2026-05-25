@@ -1599,10 +1599,18 @@
           extensions: [{
             name: 'inlineMath',
             level: 'inline',
-            start: function(src) { return src.indexOf('$'); },
+            start: function(src) {
+              var i1 = src.indexOf('$');
+              var i2 = src.indexOf('\\(');
+              if (i1 === -1) return i2;
+              if (i2 === -1) return i1;
+              return Math.min(i1, i2);
+            },
             tokenizer: function(src) {
               var match = src.match(/^\$([^\$\n]+?)\$/);
               if (match) return { type: 'inlineMath', raw: match[0], text: match[1] };
+              var match2 = src.match(/^\\\(([^\)]+?)\\\)/);
+              if (match2) return { type: 'inlineMath', raw: match2[0], text: match2[1] };
             },
             renderer: function(token) {
               try { return katex.renderToString(token.text, { displayMode: false, throwOnError: false }); }
@@ -1611,10 +1619,18 @@
           }, {
             name: 'blockMath',
             level: 'block',
-            start: function(src) { return src.indexOf('$$'); },
+            start: function(src) {
+              var i1 = src.indexOf('$$');
+              var i2 = src.indexOf('\\[');
+              if (i1 === -1) return i2;
+              if (i2 === -1) return i1;
+              return Math.min(i1, i2);
+            },
             tokenizer: function(src) {
               var match = src.match(/^\$\$([\s\S]+?)\$\$/);
               if (match) return { type: 'blockMath', raw: match[0], text: match[1].trim() };
+              var match2 = src.match(/^\\\[([\s\S]+?)\\\]/);
+              if (match2) return { type: 'blockMath', raw: match2[0], text: match2[1].trim() };
             },
             renderer: function(token) {
               try { return katex.renderToString(token.text, { displayMode: true, throwOnError: false }); }

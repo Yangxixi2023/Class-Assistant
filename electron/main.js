@@ -169,6 +169,14 @@ async function startYuketangView(customUrl) {
 
   mainWindow.addBrowserView(yuketangView);
 
+  // Handle new window requests (e.g., "进入课堂" opens popup) — navigate in same view
+  yuketangView.webContents.setWindowOpenHandler(({ url }) => {
+    if (url && url.startsWith('http')) {
+      yuketangView.webContents.loadURL(url);
+    }
+    return { action: 'deny' };
+  });
+
   yuketangView.webContents.on('did-navigate', (_e, url) => {
     if (!yuketangView || yuketangView.webContents.isDestroyed()) return;
     const title = yuketangView.webContents.getTitle();

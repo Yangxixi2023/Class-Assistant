@@ -115,14 +115,12 @@ async function main() {
         imageUrl,
         contextMarkdown: capture.renderedMarkdown
       });
-      const { marked } = await import('marked');
-      const renderedHtml = marked.parse(result.replace(/<script[\s\S]*?<\/script>/gi, ''));
       state.updateCapture(captureId, {
         deepThinkStatus: 'done',
         deepThinkMarkdown: result,
-        deepThinkHtml: renderedHtml
+        deepThinkHtml: ''
       });
-      res.json({ ok: true, markdown: result, html: renderedHtml });
+      res.json({ ok: true, markdown: result });
     } catch (error) {
       state.updateCapture(captureId, { deepThinkStatus: 'error' });
       res.status(500).json({ ok: false, error: error.message });

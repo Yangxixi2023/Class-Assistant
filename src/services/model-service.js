@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import { marked } from 'marked';
 
 const CATEGORY_NAMES = {
   1: '课件内容',
@@ -75,34 +74,6 @@ const CHAT_SYSTEM_PROMPT = [
   '回答使用 Markdown 格式。'
 ].join('\n');
 
-marked.setOptions({ breaks: true, gfm: true });
-
-// Server-side: preserve LaTeX for client-side KaTeX rendering
-marked.use({
-  extensions: [{
-    name: 'inlineMath',
-    level: 'inline',
-    start(src) { return src.indexOf('$'); },
-    tokenizer(src) {
-      const match = src.match(/^\$([^\$\n]+?)\$/);
-      if (match) return { type: 'inlineMath', raw: match[0], text: match[1] };
-    },
-    renderer(token) {
-      return '<span class="math-inline" data-latex="' + token.text.replace(/"/g, '&quot;') + '">$' + token.text + '$</span>';
-    }
-  }, {
-    name: 'blockMath',
-    level: 'block',
-    start(src) { return src.indexOf('$$'); },
-    tokenizer(src) {
-      const match = src.match(/^\$\$([\s\S]+?)\$\$/);
-      if (match) return { type: 'blockMath', raw: match[0], text: match[1].trim() };
-    },
-    renderer(token) {
-      return '<div class="math-block" data-latex="' + token.text.replace(/"/g, '&quot;') + '">$$' + token.text + '$$</div>';
-    }
-  }]
-});
 
 class RetryableAnalysisError extends Error {
   constructor(message) {
@@ -197,9 +168,6 @@ function normalizePayload(categoryId, rawPayload) {
   };
 }
 
-function sanitizeMarkdown(markdown) {
-  return markdown.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/on\w+\s*=/gi, '');
-}
 
 function wrapModelError(error) {
   const message = error?.message || String(error);
@@ -383,7 +351,7 @@ export class ModelService {
       title: isIgnored ? '' : asString(parsed.title) || '分析结果',
       payload,
       renderedMarkdown,
-      renderedHtml: marked.parse(sanitizeMarkdown(renderedMarkdown))
+      renderedHtml: ''
     };
   }
 

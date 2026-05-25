@@ -447,15 +447,15 @@
       case 2: html += buildChoice(capture); break;
       case 3: html += buildFill(capture); break;
       case 4: html += buildSubjective(capture); break;
-      default: html += '<div class="prose">' + (capture.renderedHtml || '') + '</div>';
+      default: html += '<div class="prose">' + parseMd(capture.renderedMarkdown || '') + '</div>';
     }
 
     if (capture.deepThinkStatus === 'thinking') {
       html += '<div class="deep-think-loading"><div class="progress-ring"></div><span class="progress-text">正在深度思考，请稍候...</span></div>';
     } else if (capture.deepThinkStatus === 'error') {
       html += '<div class="card" style="margin-top:12px;border-color:var(--red-dim)"><span style="color:var(--red);font-size:12px">深度思考失败，请重试</span></div>';
-    } else if (capture.deepThinkHtml) {
-      html += '<div class="card"><h4>深度思考</h4><div class="prose">' + capture.deepThinkHtml + '</div></div>';
+    } else if (capture.deepThinkMarkdown) {
+      html += '<div class="card"><h4>深度思考</h4><div class="prose">' + parseMd(capture.deepThinkMarkdown) + '</div></div>';
     }
 
     els.analysisBody.innerHTML = html;
@@ -481,8 +481,8 @@
     var p = c.payload || {};
     var h = '';
 
-    if (c.renderedHtml) {
-      h += '<div class="card"><div class="prose">' + c.renderedHtml + '</div></div>';
+    if (c.renderedMarkdown) {
+      h += '<div class="card"><div class="prose">' + parseMd(c.renderedMarkdown) + '</div></div>';
     }
 
     if (p.coreConcepts && p.coreConcepts.length) {
@@ -2191,9 +2191,9 @@
         var capFs = state.snapshot.captures.find(function(c) { return c.id === cid; });
         if (!capFs) return;
         els.modalTitle.textContent = capFs.title || '解析详情';
-        var content = '<div class="prose">' + (capFs.renderedHtml || '') + '</div>';
-        if (capFs.deepThinkHtml) {
-          content += '<hr style="margin:20px 0;border-color:var(--border)"/><div class="prose">' + capFs.deepThinkHtml + '</div>';
+        var content = '<div class="prose">' + parseMd(capFs.renderedMarkdown || '') + '</div>';
+        if (capFs.deepThinkMarkdown) {
+          content += '<hr style="margin:20px 0;border-color:var(--border)"/><div class="prose">' + parseMd(capFs.deepThinkMarkdown) + '</div>';
         }
         els.modalBody.innerHTML = content;
         pauseYuketangView();

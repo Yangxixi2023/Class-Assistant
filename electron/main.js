@@ -184,12 +184,23 @@ async function startYuketangView(customUrl) {
 
   mainWindow.addBrowserView(yuketangView);
 
-  // Handle new window requests (e.g., "进入课堂" opens popup) — navigate in same view
+  // Handle new window requests (e.g., "进入课堂" opens popup)
   yuketangView.webContents.setWindowOpenHandler(({ url }) => {
-    if (url && url.startsWith('http')) {
+    if (!url || !url.startsWith('http')) return { action: 'deny' };
+    // 课堂入口链接在当前 view 中打开
+    if (url.includes('/lesson/') || url.includes('/classroom/') || url.includes('/v2/web/')) {
       yuketangView.webContents.loadURL(url);
+      return { action: 'deny' };
     }
-    return { action: 'deny' };
+    // 其他链接（如"独立窗口"）允许以新窗口打开
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: 1200,
+        height: 800,
+        autoHideMenuBar: true
+      }
+    };
   });
 
   yuketangView.webContents.on('did-navigate', (_e, url) => {

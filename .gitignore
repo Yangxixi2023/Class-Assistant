@@ -7,3 +7,9 @@ data/captures/*
 dist/
 *.exe
 npm-debug.log*
+presentation/slides.aux
+presentation/slides.log
+presentation/slides.nav
+presentation/slides.out
+presentation/slides.snm
+presentation/slides.toc
